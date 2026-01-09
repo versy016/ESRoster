@@ -2,3 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Remove background-position style from ES Logo */
+.r-backgroundPosition-vvn4in,
+[class*="r-backgroundPosition"] {
+  background-position: unset !important;
+}
+

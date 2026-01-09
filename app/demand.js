@@ -19,8 +19,14 @@ import {
 } from "date-fns";
 import { saveDemand, loadDemand } from "../lib/storage-hybrid";
 import TopNav from "../components/TopNav";
+import { useAuth } from "../contexts/AuthContext";
+import { useRouter } from "expo-router";
 
 export default function DemandScreen() {
+  const { role } = useAuth();
+  const router = useRouter();
+
+  // All hooks must be called before any conditional returns
   const [viewMode, setViewMode] = useState("FORTNIGHT"); // FORTNIGHT | MONTH
   const [area, setArea] = useState("SOUTH"); // SOUTH | NORTH (internal app values)
   const [anchorDate, setAnchorDate] = useState(new Date());
@@ -31,52 +37,76 @@ export default function DemandScreen() {
   // Get default template based on area
   const getDefaultTemplate = (area) => {
     if (area === "SOUTH") {
-      // STSP defaults
+      // STSP defaults: Weekdays 6 day, 1 night; Saturday 3 day, 0 night
       return {
-        monFriDay: 5,
+        monFriDay: 6,
         satDay: 3,
         night: 1, // Mon-Fri nights only
       };
     } else {
-      // NTNP defaults
+      // NTNP defaults: Saturday 1 day, 0 night
       return {
-        monFriDay: 3,
+        monFriDay: 3, // Weekdays default (can be changed by user)
         satDay: 1,
         night: 0, // No nights for NTNP
       };
     }
   };
-
+  
   // Template for Mon-Sat similar coverage
   const [template, setTemplate] = useState(getDefaultTemplate(area));
 
+  // Redirect surveyors away from demand page
   useEffect(() => {
-    loadSavedDemand(area);
-  }, [area]);
+    if (role === "surveyor") {
+      router.replace("/roster");
+    }
+  }, [role, router]);
+
+  useEffect(() => {
+    // Only load demand if user is not a surveyor
+    if (role !== "surveyor") {
+      loadSavedDemand(area);
+    }
+  }, [area, anchorDate, role]); // Also reload when anchorDate changes to apply defaults to new dates
+
+  // Don't render anything if user is a surveyor (will redirect)
+  if (role === "surveyor") {
+    return null;
+  }
 
   async function loadSavedDemand(targetArea = area) {
     // Clear demand first to prevent showing old area's data
     setDemand({});
     
     const saved = await loadDemand(targetArea);
-    if (saved && saved.demand && Object.keys(saved.demand).length > 0) {
-      setDemand(saved.demand);
-      // Use saved template or default for target area
-      setTemplate(saved.template || getDefaultTemplate(targetArea));
-    } else {
-      // No saved data, use defaults for target area
-      const defaultTemplate = getDefaultTemplate(targetArea);
-      setTemplate(defaultTemplate);
-      // Auto-populate demand grid with defaults immediately
-      const ws = startOfWeek(anchorDate, { weekStartsOn: 1 });
-      const newDemand = {};
+    const defaultTemplate = getDefaultTemplate(targetArea);
+    
+    // Always use defaults for template
+    setTemplate(saved?.template || defaultTemplate);
+    
+    // Build demand for current fortnight, using saved values if available, otherwise defaults
+    const ws = startOfWeek(anchorDate, { weekStartsOn: 1 });
+    const newDemand = {};
+    const savedDemand = saved?.demand || {};
+    
+    // Apply to current fortnight (14 days)
+    for (let i = 0; i < 14; i++) {
+      const d = addDays(ws, i);
+      const dateKey = format(d, "yyyy-MM-dd");
+      const dow = d.getDay();
       
-      // Apply to current fortnight (14 days)
-      for (let i = 0; i < 14; i++) {
-        const d = addDays(ws, i);
-        const dateKey = format(d, "yyyy-MM-dd");
-        const dow = d.getDay();
-        
+      // Check if we have saved demand for this date
+      const savedForDate = savedDemand[dateKey];
+      
+      if (savedForDate && (savedForDate.day > 0 || savedForDate.night > 0)) {
+        // Use saved value if it exists and is non-zero
+        newDemand[dateKey] = {
+          day: savedForDate.day || 0,
+          night: savedForDate.night || 0,
+        };
+      } else {
+        // Apply defaults based on day of week
         if (dow >= 1 && dow <= 5) {
           // Mon-Fri
           newDemand[dateKey] = {
@@ -97,9 +127,9 @@ export default function DemandScreen() {
           };
         }
       }
-      
-      setDemand(newDemand);
     }
+    
+    setDemand(newDemand);
   }
 
   async function handleSave() {
@@ -216,174 +246,174 @@ export default function DemandScreen() {
 
           {/* Content Area - All content below tabs */}
           <View style={styles.tabContentContainer}>
-            {/* Toggle + nav */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
+        {/* Toggle + nav */}
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
                 marginBottom: 12,
-              }}
-            >
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <Chip
-                  active={viewMode === "FORTNIGHT"}
-                  onPress={() => setViewMode("FORTNIGHT")}
-                  label="Fortnight"
-                />
-                <Chip
-                  active={viewMode === "MONTH"}
-                  onPress={() => setViewMode("MONTH")}
-                  label="Month"
-                />
-              </View>
+        }}
+      >
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Chip
+            active={viewMode === "FORTNIGHT"}
+            onPress={() => setViewMode("FORTNIGHT")}
+            label="Fortnight"
+          />
+          <Chip
+            active={viewMode === "MONTH"}
+            onPress={() => setViewMode("MONTH")}
+            label="Month"
+          />
+        </View>
 
-              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-                <Chip
-                  label="◀"
-                  onPress={() =>
-                    setAnchorDate((d) =>
-                      addDays(d, viewMode === "FORTNIGHT" ? -14 : -30)
-                    )
-                  }
-                />
-                <Text style={{ fontWeight: "700" }}>
-                  {format(anchorDate, "MMM yyyy")}
-                </Text>
-                <Chip
-                  label="▶"
-                  onPress={() =>
-                    setAnchorDate((d) => addDays(d, viewMode === "FORTNIGHT" ? 14 : 30))
-                  }
-                />
-              </View>
-            </View>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <Chip
+            label="◀"
+            onPress={() =>
+              setAnchorDate((d) =>
+                addDays(d, viewMode === "FORTNIGHT" ? -14 : -30)
+              )
+            }
+          />
+          <Text style={{ fontWeight: "700" }}>
+            {format(anchorDate, "MMM yyyy")}
+          </Text>
+          <Chip
+            label="▶"
+            onPress={() =>
+              setAnchorDate((d) => addDays(d, viewMode === "FORTNIGHT" ? 14 : 30))
+            }
+          />
+        </View>
+      </View>
 
-            {/* Calendar */}
-            {viewMode === "FORTNIGHT" ? (
-              <WeekGrid
-                days={fortnightDays}
-                demand={demand}
-                getDemand={getDemand}
-                updateDemand={updateDemand}
-              />
-            ) : (
-              <MonthGrid
-                days={monthDays}
-                demand={demand}
-                getDemand={getDemand}
-                updateDemand={updateDemand}
-              />
-            )}
+      {/* Calendar */}
+      {viewMode === "FORTNIGHT" ? (
+        <WeekGrid
+          days={fortnightDays}
+          demand={demand}
+          getDemand={getDemand}
+          updateDemand={updateDemand}
+        />
+      ) : (
+        <MonthGrid
+          days={monthDays}
+          demand={demand}
+          getDemand={getDemand}
+          updateDemand={updateDemand}
+        />
+      )}
 
-            {/* Template Section */}
-            <View
-              style={{
-                padding: 12,
-                borderWidth: 1,
-                borderRadius: 10,
-                gap: 10,
-                borderColor: "#e5e5e5",
-                backgroundColor: "#ffffff",
+      {/* Template Section */}
+      <View
+        style={{
+          padding: 12,
+          borderWidth: 1,
+          borderRadius: 10,
+          gap: 10,
+          borderColor: "#e5e5e5",
+          backgroundColor: "#ffffff",
                 marginTop: 12,
+        }}
+      >
+        <Text style={{ fontWeight: "700", fontSize: 14 }}>
+          Fortnight Template (Mon-Sat Similar Coverage)
+        </Text>
+        
+        <View style={{ gap: 6 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ flex: 1, fontWeight: "600", fontSize: 13 }}>Mon-Fri Day:</Text>
+            <TextInput
+              value={String(template.monFriDay)}
+              onChangeText={(v) =>
+                setTemplate({ ...template, monFriDay: parseInt(v) || 0 })
+              }
+              keyboardType="numeric"
+              style={{
+                borderWidth: 1,
+                borderRadius: 6,
+                padding: 6,
+                width: 70,
+                textAlign: "center",
+                fontSize: 13,
               }}
-            >
-              <Text style={{ fontWeight: "700", fontSize: 14 }}>
-                Fortnight Template (Mon-Sat Similar Coverage)
-              </Text>
-              
-              <View style={{ gap: 6 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ flex: 1, fontWeight: "600", fontSize: 13 }}>Mon-Fri Day:</Text>
-                  <TextInput
-                    value={String(template.monFriDay)}
-                    onChangeText={(v) =>
-                      setTemplate({ ...template, monFriDay: parseInt(v) || 0 })
-                    }
-                    keyboardType="numeric"
-                    style={{
-                      borderWidth: 1,
-                      borderRadius: 6,
-                      padding: 6,
-                      width: 70,
-                      textAlign: "center",
-                      fontSize: 13,
-                    }}
-                  />
-                </View>
-                
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ flex: 1, fontWeight: "600", fontSize: 13 }}>Saturday Day:</Text>
-                  <TextInput
-                    value={String(template.satDay)}
-                    onChangeText={(v) =>
-                      setTemplate({ ...template, satDay: parseInt(v) || 0 })
-                    }
-                    keyboardType="numeric"
-                    style={{
-                      borderWidth: 1,
-                      borderRadius: 6,
-                      padding: 6,
-                      width: 70,
-                      textAlign: "center",
-                      fontSize: 13,
-                    }}
-                  />
-                </View>
-                
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            />
+          </View>
+          
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ flex: 1, fontWeight: "600", fontSize: 13 }}>Saturday Day:</Text>
+            <TextInput
+              value={String(template.satDay)}
+              onChangeText={(v) =>
+                setTemplate({ ...template, satDay: parseInt(v) || 0 })
+              }
+              keyboardType="numeric"
+              style={{
+                borderWidth: 1,
+                borderRadius: 6,
+                padding: 6,
+                width: 70,
+                textAlign: "center",
+                fontSize: 13,
+              }}
+            />
+          </View>
+          
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Text style={{ flex: 1, fontWeight: "600", fontSize: 13 }}>Night (Mon-Fri only):</Text>
-                  <TextInput
-                    value={String(template.night)}
-                    onChangeText={(v) =>
-                      setTemplate({ ...template, night: parseInt(v) || 0 })
-                    }
-                    keyboardType="numeric"
-                    style={{
-                      borderWidth: 1,
-                      borderRadius: 6,
-                      padding: 6,
-                      width: 70,
-                      textAlign: "center",
-                      fontSize: 13,
-                    }}
-                  />
-                </View>
+            <TextInput
+              value={String(template.night)}
+              onChangeText={(v) =>
+                setTemplate({ ...template, night: parseInt(v) || 0 })
+              }
+              keyboardType="numeric"
+              style={{
+                borderWidth: 1,
+                borderRadius: 6,
+                padding: 6,
+                width: 70,
+                textAlign: "center",
+                fontSize: 13,
+              }}
+            />
+          </View>
                 <Text style={{ fontSize: 11, color: "#666666", fontStyle: "italic" }}>
                   Note: Saturday nights are always 0 for both zones
                 </Text>
-              </View>
-              
-              <Pressable
-                onPress={applyTemplate}
-                style={{
-                  padding: 10,
-                  borderWidth: 1,
-                  borderRadius: 8,
-                  alignItems: "center",
-                  backgroundColor: "#fbbf24",
-                  borderColor: "#e5e5e5",
-                }}
-              >
-                <Text style={{ fontWeight: "700", color: "#000000", fontSize: 13 }}>Apply Template to Current Fortnight</Text>
-              </Pressable>
-            </View>
+        </View>
+        
+        <Pressable
+          onPress={applyTemplate}
+          style={{
+            padding: 10,
+            borderWidth: 1,
+            borderRadius: 8,
+            alignItems: "center",
+            backgroundColor: "#fbbf24",
+            borderColor: "#e5e5e5",
+          }}
+        >
+          <Text style={{ fontWeight: "700", color: "#000000", fontSize: 13 }}>Apply Template to Current Fortnight</Text>
+        </Pressable>
+      </View>
 
-            {/* Save Button */}
-            <Pressable
-              onPress={handleSave}
-              style={{
-                padding: 12,
-                borderWidth: 1,
-                borderRadius: 10,
-                alignItems: "center",
-                backgroundColor: "#000000",
-                borderColor: "#000000",
+      {/* Save Button */}
+      <Pressable
+        onPress={handleSave}
+        style={{
+          padding: 12,
+          borderWidth: 1,
+          borderRadius: 10,
+          alignItems: "center",
+          backgroundColor: "#000000",
+          borderColor: "#000000",
                 marginTop: 12,
-              }}
-            >
-              <Text style={{ fontWeight: "700", color: "#ffffff", fontSize: 14 }}>Save Demand Settings</Text>
-            </Pressable>
+        }}
+      >
+        <Text style={{ fontWeight: "700", color: "#ffffff", fontSize: 14 }}>Save Demand Settings</Text>
+      </Pressable>
           </View>
         </View>
         </View>
@@ -503,7 +533,7 @@ function DemandDayCell({ date, dateKey, getDemand, updateDemand, compact }) {
     <View
       style={{
         flex: 1,
-        minHeight: compact ? 100 : 160,
+        minHeight: compact ? (Platform.OS === "web" ? 100 : 90) : (Platform.OS === "web" ? 160 : 140),
         borderWidth: 1,
         borderRadius: 8,
         padding: 8,
@@ -526,12 +556,13 @@ function DemandDayCell({ date, dateKey, getDemand, updateDemand, compact }) {
             style={{
               borderWidth: 1,
               borderRadius: 6,
-              padding: 6,
-              fontSize: 13,
+              padding: Platform.OS === "web" ? 6 : 8,
+              fontSize: Platform.OS === "web" ? 13 : 14,
               textAlign: "center",
               borderColor: "#e5e5e5",
               backgroundColor: "#ffffff",
               color: "#000000",
+              minHeight: Platform.OS === "web" ? "auto" : 44, // Minimum touch target for mobile
             }}
             placeholder="0"
             placeholderTextColor="#999999"
@@ -547,12 +578,13 @@ function DemandDayCell({ date, dateKey, getDemand, updateDemand, compact }) {
             style={{
               borderWidth: 1,
               borderRadius: 6,
-              padding: 6,
-              fontSize: 13,
+              padding: Platform.OS === "web" ? 6 : 8,
+              fontSize: Platform.OS === "web" ? 13 : 14,
               textAlign: "center",
               borderColor: "#e5e5e5",
               backgroundColor: "#ffffff",
               color: "#000000",
+              minHeight: Platform.OS === "web" ? "auto" : 44, // Minimum touch target for mobile
             }}
             placeholder="0"
             placeholderTextColor="#999999"
@@ -568,12 +600,16 @@ function Chip({ label, onPress, active }) {
     <Pressable
       onPress={onPress}
       style={{
-        paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingVertical: Platform.OS === "web" ? 8 : 10,
+        paddingHorizontal: Platform.OS === "web" ? 16 : 14,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: "#e5e5e5",
         backgroundColor: active ? "#fbbf24" : "#ffffff",
+        minHeight: Platform.OS === "web" ? "auto" : 44, // Minimum touch target for mobile
+        minWidth: Platform.OS === "web" ? "auto" : 44,
+        justifyContent: "center",
+        alignItems: "center",
       }}
     >
       <Text style={{ 
@@ -611,11 +647,11 @@ function OfficeTab({ label, onPress, active, isFirst }) {
 
 const styles = StyleSheet.create({
   officeTabHeading: {
-    fontSize: 28,
+    fontSize: Platform.OS === "web" ? 28 : 24,
     fontWeight: "700",
     color: "#3c4043",
-    marginBottom: 16,
-    marginTop: 12,
+    marginBottom: Platform.OS === "web" ? 16 : 12,
+    marginTop: Platform.OS === "web" ? 12 : 8,
     textAlign: "center",
     letterSpacing: 0.5,
   },
@@ -663,8 +699,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   officeTab: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: Platform.OS === "web" ? 12 : 10,
+    paddingHorizontal: Platform.OS === "web" ? 20 : 12,
     backgroundColor: "rgba(251, 191, 36, 0.1)",
     borderTopWidth: 0,
     borderLeftWidth: 0,
