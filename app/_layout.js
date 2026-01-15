@@ -40,43 +40,33 @@ function RootLayoutNav() {
   }
 
   const isWeb = Platform.OS === "web";
+  const screenOptions = {
+    headerShown: false,
+    contentStyle: { backgroundColor: "#ffffff" },
+  };
+
+  const stackScreens = (
+    <Stack screenOptions={screenOptions}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="login" />
+      <Stack.Screen name="roster" />
+      <Stack.Screen name="demand" />
+      <Stack.Screen name="surveyors" />
+      <Stack.Screen name="profile" />
+    </Stack>
+  );
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      {!isWeb && (
+      {!isWeb ? (
         <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
           <StatusBar style="dark" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: "#ffffff" },
-            }}
-          >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="login" />
-            <Stack.Screen name="roster" />
-            <Stack.Screen name="demand" />
-            <Stack.Screen name="surveyors" />
-            <Stack.Screen name="profile" />
-          </Stack>
+          {stackScreens}
         </SafeAreaView>
-      )}
-      {isWeb && (
+      ) : (
         <>
           <StatusBar style="dark" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: "#ffffff" },
-            }}
-          >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="login" />
-            <Stack.Screen name="roster" />
-            <Stack.Screen name="demand" />
-            <Stack.Screen name="surveyors" />
-            <Stack.Screen name="profile" />
-          </Stack>
+          {stackScreens}
         </>
       )}
     </GestureHandlerRootView>

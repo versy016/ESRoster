@@ -18,24 +18,12 @@ import { usePathname, useRouter, useLocalSearchParams } from "expo-router";
 import { saveSurveyors, loadSurveyors } from "../lib/storage-hybrid";
 import TopNav from "../components/TopNav";
 import { Ionicons } from "@expo/vector-icons";
-import { format, parseISO, isValid, addDays, eachDayOfInterval, parse, differenceInCalendarDays, isPast, startOfDay } from "date-fns";
+import { format, parseISO, isValid, addDays, eachDayOfInterval, parse, differenceInCalendarDays, startOfDay } from "date-fns";
 import { Calendar } from "react-native-calendars";
 import * as ImagePicker from "expo-image-picker";
 import { uploadSurveyorImage, deleteSurveyorImage } from "../lib/s3-upload";
 import { useAuth } from "../contexts/AuthContext";
 import { linkUserToSurveyor, unlinkUserFromSurveyor } from "../lib/db";
-
-const DEFAULT_SURVEYORS = [
-  { id: "s1", name: "Surveyor 1", photoUrl: "https://i.pravatar.cc/100?img=1", active: true },
-  { id: "s2", name: "Surveyor 2", photoUrl: "https://i.pravatar.cc/100?img=2", active: true },
-  { id: "s3", name: "Surveyor 3", photoUrl: "https://i.pravatar.cc/100?img=3", active: true },
-  { id: "s4", name: "Surveyor 4", photoUrl: "https://i.pravatar.cc/100?img=4", active: true },
-  { id: "s5", name: "Surveyor 5", photoUrl: "https://i.pravatar.cc/100?img=5", active: true },
-  { id: "s6", name: "Surveyor 6", photoUrl: "https://i.pravatar.cc/100?img=6", active: true },
-  { id: "s7", name: "Surveyor 7", photoUrl: "https://i.pravatar.cc/100?img=7", active: true },
-  { id: "s8", name: "Surveyor 8", photoUrl: "https://i.pravatar.cc/100?img=8", active: true },
-  { id: "s9", name: "Surveyor 9", photoUrl: "https://i.pravatar.cc/100?img=9", active: true },
-];
 
 export default function SurveyorsScreen() {
   const { user, role, refreshRole } = useAuth();

@@ -161,6 +161,7 @@ export default function RosterScreen() {
   const [byDate, setByDate] = useState({});
   const [initialByDate, setInitialByDate] = useState({}); // Track initial state for change detection
   const [currentRosterId, setCurrentRosterId] = useState(null); // Store the current roster ID
+  const [publishedRosterId, setPublishedRosterId] = useState(null); // Store the published roster ID when editing (for replacement)
   const [rosterStartDate, setRosterStartDate] = useState(null); // Store the roster's actual start date for validation
   const [currentRosterStatus, setCurrentRosterStatus] = useState(null); // Track current roster status: "draft", "confirmed", "published"
   const isDeletingRef = useRef(false); // Flag to prevent loading during deletion
@@ -670,6 +671,22 @@ export default function RosterScreen() {
         }
       }
       
+      // Check if we're editing a draft and there's a published roster for the same period
+      let publishedRosterIdForPeriod = null;
+      if (latestRosterStatus === "draft" && latestRosterStartDate) {
+        const publishedRoster = rosterResults.find(r => 
+          r && 
+          r.id !== latestRosterId &&
+          (r.status === "published" || r.status === "confirmed") &&
+          r.startDate === format(latestRosterStartDate, "yyyy-MM-dd") &&
+          r.area === area
+        );
+        if (publishedRoster) {
+          publishedRosterIdForPeriod = publishedRoster.id;
+          console.log(`[ROSTER VERSIONING] Found published roster ${publishedRoster.id} while editing draft ${latestRosterId}`);
+        }
+      }
+      
       if (foundRoster && Object.keys(mergedAssignments).length > 0) {
         console.log(`Loaded and merged rosters for ${viewMode === "MONTH" ? "month" : "fortnight"}`);
         console.log(`Found ${Object.keys(mergedAssignments).length} days with assignments`);
@@ -680,6 +697,8 @@ export default function RosterScreen() {
         setCurrentRosterId(latestRosterId);
         // Store the roster status
         setCurrentRosterStatus(latestRosterStatus || "draft");
+        // Store published roster ID if we're editing a draft
+        setPublishedRosterId(publishedRosterIdForPeriod);
         // Mark that a roster exists for this period
         setRosterExistsForFortnight(true);
         // Store the roster's actual start date for validation
@@ -723,10 +742,10 @@ export default function RosterScreen() {
         setCurrentRosterId(null);
         // Clear roster status
         setCurrentRosterStatus(null);
+        // Clear published roster ID
+        setPublishedRosterId(null);
         // Clear roster start date
         setRosterStartDate(null);
-        // Clear roster status
-        setCurrentRosterStatus(null);
       }
     } catch (error) {
       // Check if request was aborted
@@ -947,14 +966,15 @@ export default function RosterScreen() {
       // Auto-save to database
       setTimeout(() => {
         const roster = {
-          id: `roster_${format(anchorDate, "yyyy-MM-dd")}`,
+          id: currentRosterId || `roster_${format(anchorDate, "yyyy-MM-dd")}`,
           startDate: format(startOfWeek(anchorDate, { weekStartsOn: 1 }), "yyyy-MM-dd"),
           endDate: format(addDays(startOfWeek(anchorDate, { weekStartsOn: 1 }), 13), "yyyy-MM-dd"),
           area: area,
           assignmentsByDate: updatedByDate,
           createdAt: new Date().toISOString(),
+          status: currentRosterStatus || "draft",
         };
-        saveRoster(roster).catch(err => console.error("Auto-save error:", err));
+        autoSaveRoster(roster);
       }, 100);
       
       return updatedByDate;
@@ -982,14 +1002,15 @@ export default function RosterScreen() {
         // Auto-save to database after state update
         setTimeout(() => {
           const roster = {
-            id: `roster_${format(anchorDate, "yyyy-MM-dd")}`,
+            id: currentRosterId || `roster_${format(anchorDate, "yyyy-MM-dd")}`,
             startDate: format(startOfWeek(anchorDate, { weekStartsOn: 1 }), "yyyy-MM-dd"),
             endDate: format(addDays(startOfWeek(anchorDate, { weekStartsOn: 1 }), 13), "yyyy-MM-dd"),
             area: area,
             assignmentsByDate: updatedByDate,
             createdAt: new Date().toISOString(),
+            status: currentRosterStatus || "draft",
           };
-          saveRoster(roster).catch(err => console.error("Auto-save error:", err));
+          autoSaveRoster(roster);
         }, 100);
         
         return updatedByDate;
@@ -1026,14 +1047,15 @@ export default function RosterScreen() {
         setTimeout(() => {
           const updatedByDate = { ...prev, [dateKey]: list };
           const roster = {
-            id: `roster_${format(anchorDate, "yyyy-MM-dd")}`,
+            id: currentRosterId || `roster_${format(anchorDate, "yyyy-MM-dd")}`,
             startDate: format(startOfWeek(anchorDate, { weekStartsOn: 1 }), "yyyy-MM-dd"),
             endDate: format(addDays(startOfWeek(anchorDate, { weekStartsOn: 1 }), 13), "yyyy-MM-dd"),
             area: area,
             assignmentsByDate: updatedByDate,
             createdAt: new Date().toISOString(),
+            status: currentRosterStatus || "draft",
           };
-          saveRoster(roster).catch(err => console.error("Auto-save error:", err));
+          autoSaveRoster(roster);
         }, 100);
       }
       return { ...prev, [dateKey]: list };
@@ -1043,6 +1065,31 @@ export default function RosterScreen() {
   function getName(id) {
     return surveyors.find((s) => s.id === id)?.name ?? id;
   }
+
+  const autoSaveRoster = async (rosterData) => {
+    try {
+      // Ensure we're using the correct ID if we have one
+      if (currentRosterId) {
+        rosterData.id = currentRosterId;
+      }
+      
+      const saveResult = await saveRoster(rosterData);
+      if (saveResult.success && saveResult.data) {
+        if (saveResult.data.id && saveResult.data.id !== currentRosterId) {
+          console.log(`[AUTO-SAVE] Roster ID changed from ${currentRosterId} to ${saveResult.data.id}`);
+          setCurrentRosterId(saveResult.data.id);
+        }
+        if (saveResult.data.publishedRosterId) {
+          console.log(`[AUTO-SAVE] Linked to published roster ${saveResult.data.publishedRosterId}`);
+          setPublishedRosterId(saveResult.data.publishedRosterId);
+        }
+        // If we saved successfully, it's a draft
+        setCurrentRosterStatus("draft");
+      }
+    } catch (err) {
+      console.error("Auto-save error:", err);
+    }
+  };
 
   // Check if roster has been modified
   const hasChanges = useMemo(() => {
@@ -1056,6 +1103,18 @@ export default function RosterScreen() {
     console.log("Roster hasChanges:", hasChanges);
     setHasUnsavedChanges(hasChanges);
   }, [hasChanges, setHasUnsavedChanges]);
+
+  // Debug "Cancel Edit" button visibility
+  useEffect(() => {
+    if (!isSurveyor) {
+      console.log(`[ROSTER UI DEBUG] Cancel Edit Button Check:
+      - isSurveyor: ${isSurveyor}
+      - currentRosterStatus: ${currentRosterStatus} (expected "draft")
+      - publishedRosterId: ${publishedRosterId}
+      - visible: ${!isSurveyor && currentRosterStatus === "draft"}
+      `);
+    }
+  }, [isSurveyor, currentRosterStatus, publishedRosterId]);
 
   function handleConfirmRosterClick() {
     setConfirmRosterModal(true);
@@ -1098,7 +1157,7 @@ export default function RosterScreen() {
         area: area, // Preserve the current area (SOUTH or NORTH)
         assignmentsByDate: byDate,
         createdAt: new Date().toISOString(),
-        status: "confirmed",
+        status: "published", // Changed from "confirmed" to "published"
       };
       
       // Update rosterStartDate state to match the saved roster
@@ -1115,8 +1174,31 @@ export default function RosterScreen() {
           setCurrentRosterId(saveResult.data.id);
         }
         
-        // Update roster status to confirmed
-        setCurrentRosterStatus("confirmed");
+        // If this draft was replacing a published roster, archive the old published one
+        const publishedIdToArchive = publishedRosterId || (saveResult.data && saveResult.data.publishedRosterId);
+        if (publishedIdToArchive) {
+          console.log(`[ROSTER VERSIONING] Draft ${saveResult.data.id} is replacing published roster ${publishedIdToArchive}. Archiving published roster.`);
+          
+          // Archive the published roster by changing its status to "archived"
+          try {
+            const { updateRoster } = await import("../lib/db");
+            await updateRoster(publishedIdToArchive, {
+              status: "archived",
+              startDate: roster.startDate,
+              endDate: roster.endDate,
+            });
+            console.log(`[ROSTER VERSIONING] Archived published roster ${publishedIdToArchive}`);
+          } catch (error) {
+            console.error(`[ROSTER VERSIONING] Error archiving published roster:`, error);
+            // Continue anyway - the draft is saved
+          }
+          
+          // Clear the published roster ID tracking
+          setPublishedRosterId(null);
+        }
+        
+        // Update roster status to published (not just confirmed)
+        setCurrentRosterStatus("published");
         
         // Clear unsaved changes flag
         setHasUnsavedChanges(false);
@@ -1172,8 +1254,8 @@ export default function RosterScreen() {
         setConfirmingRoster(false);
         
         Alert.alert(
-          "Roster Confirmed & Saved ✅",
-          `The roster has been successfully saved to the database.\n\n` +
+          "Roster Published & Saved ✅",
+          `The roster has been successfully published and is now visible to surveyors.\n\n` +
           `📊 Roster Summary (This Week):\n` +
           `• Total Assignments: ${totalAssignments}\n` +
           `• Day Shifts: ${dayShifts}\n` +
@@ -1305,6 +1387,107 @@ export default function RosterScreen() {
     } catch (error) {
       console.error("Error loading roster:", error);
       Alert.alert("Error", "An error occurred while loading the roster");
+    }
+  }
+
+  async function executeDiscard() {
+    console.log("[CANCEL EDIT] Starting discard process...");
+    setLoading(true); // Show loading indicator
+    try {
+      // 1. Delete the current draft roster
+      if (currentRosterId) {
+        console.log(`[CANCEL EDIT] Deleting draft roster ${currentRosterId}`);
+        const deleteResult = await deleteRosterFromStorage(currentRosterId);
+        if (!deleteResult.success) {
+          console.error("[CANCEL EDIT] Failed to delete draft:", deleteResult.error);
+          Alert.alert("Error", "Failed to discard draft roster.");
+          setLoading(false);
+          return;
+        }
+        console.log("[CANCEL EDIT] Draft deleted successfully");
+      } else {
+        console.log("[CANCEL EDIT] No currentRosterId to delete");
+      }
+      
+      // 2. Find and load the published roster
+      let rosterToLoadId = publishedRosterId;
+      console.log(`[CANCEL EDIT] Initial publishedRosterId: ${rosterToLoadId}`);
+      
+      // If we don't have the ID, try to find a published roster for the same period
+      if (!rosterToLoadId) {
+        console.log("[CANCEL EDIT] Searching for published roster by date range...");
+        const allRosters = await loadAllRosters();
+        const currentStart = format(startOfWeek(anchorDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+        const currentEnd = format(addDays(startOfWeek(anchorDate, { weekStartsOn: 1 }), 13), "yyyy-MM-dd");
+        console.log(`[CANCEL EDIT] Search range: ${currentStart} to ${currentEnd}, Area: ${area}`);
+        
+        const publishedRoster = allRosters.find(r => 
+          r.startDate === currentStart && 
+          r.endDate === currentEnd && 
+          r.area === area && 
+          (r.status === "published" || r.status === "confirmed")
+        );
+        
+        if (publishedRoster) {
+          console.log(`[CANCEL EDIT] Found published roster: ${publishedRoster.id}`);
+          rosterToLoadId = publishedRoster.id;
+        } else {
+          console.log("[CANCEL EDIT] No published roster found for this period");
+        }
+      }
+      
+      if (rosterToLoadId) {
+        console.log(`[CANCEL EDIT] Loading published roster ${rosterToLoadId}`);
+        await handleLoadRoster(rosterToLoadId);
+        Alert.alert("Reverted", "Changes discarded. Reverted to published roster.");
+      } else {
+        console.log("[CANCEL EDIT] Clearing view (no published roster to revert to)");
+        // If no published roster exists (e.g. creating from scratch), clear the view
+        setByDate({});
+        setInitialByDate({});
+        setCurrentRosterId(null);
+        setCurrentRosterStatus(null); // Ensure status is cleared (not "draft")
+        setRosterStartDate(null);
+        setPublishedRosterId(null); // Clear published ID
+        
+        // Also ensure we are not in "edit" mode visually
+        setHasUnsavedChanges(false);
+        
+        Alert.alert("Draft Deleted", "Draft roster discarded.");
+      }
+      
+      // Refresh the roster list
+      refreshSavedRosters();
+      
+    } catch (error) {
+      console.error("Error cancelling edit:", error);
+      Alert.alert("Error", "An error occurred while discarding changes.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCancelEdit() {
+    console.log("[CANCEL EDIT] Button pressed");
+    
+    if (Platform.OS === "web") {
+      // Use standard window.confirm for Web to avoid Alert issues
+      if (confirm("Are you sure you want to discard your changes? This will revert to the last published version if one exists.")) {
+        await executeDiscard();
+      }
+    } else {
+      Alert.alert(
+        "Discard Changes?",
+        "Are you sure you want to discard your changes? This will revert to the last published version if one exists.",
+        [
+          { text: "No, Keep Editing", style: "cancel" },
+          {
+            text: "Yes, Discard Changes",
+            style: "destructive",
+            onPress: executeDiscard
+          }
+        ]
+      );
     }
   }
 
@@ -1557,33 +1740,21 @@ export default function RosterScreen() {
         
         // Update rosterStartDate state to match the generated roster
         setRosterStartDate(generationStartDate);
-        if (!currentRosterId) {
-          // New roster - set the ID
-          setCurrentRosterId(roster.id);
-        }
         
-        const saveResult = await saveRoster(roster);
+        // Use autoSaveRoster helper to ensure state (ID, status, publishedId) is updated correctly
+        await autoSaveRoster(roster);
         
-        // Update roster status to draft
-        setCurrentRosterStatus("draft");
+        // Assume success if no error thrown (autoSaveRoster catches its own errors but we can assume success for UI flow)
+        const issues = result.issues || [];
         
-        // Show results
-        if (saveResult.success) {
-          if (result.issues && result.issues.length > 0) {
-            Alert.alert(
-              "Generate Rosters Complete",
-              `Roster generated and saved as draft! ✅\n\nNote: ${result.issues.length} issue(s) detected:\n${result.issues.slice(0, 3).join("\n")}${result.issues.length > 3 ? `\n...and ${result.issues.length - 3} more` : ""}\n\n⚠️ Remember to confirm the roster to publish it.`,
-              [{ text: "OK" }]
-            );
-          } else {
-            Alert.alert("Success", "Roster generated and saved as draft! ✅\n\n⚠️ Remember to confirm the roster to publish it.");
-          }
-        } else {
+        if (issues.length > 0) {
           Alert.alert(
-            "Partial Success",
-            `Roster populated but failed to save.\n\nError: ${saveResult.error || "Unknown error"}`,
+            "Generate Rosters Complete",
+            `Roster generated and saved as draft! ✅\n\nNote: ${result.issues.length} issue(s) detected:\n${result.issues.slice(0, 3).join("\n")}${result.issues.length > 3 ? `\n...and ${result.issues.length - 3} more` : ""}\n\n⚠️ Remember to confirm the roster to publish it.`,
             [{ text: "OK" }]
           );
+        } else {
+          Alert.alert("Success", "Roster generated and saved as draft! ✅\n\n⚠️ Remember to confirm the roster to publish it.");
         }
       } else {
         Alert.alert("Error", result.error || "Failed to generate roster");
@@ -1949,6 +2120,20 @@ export default function RosterScreen() {
                 Export PDF
               </Text>
             </Pressable>
+            )}
+            {/* Debug "Cancel Edit" button visibility */}
+            {!isSurveyor && currentRosterStatus === "draft" && (
+              <Pressable
+                onPress={handleCancelEdit}
+                style={[
+                  styles.actionButton,
+                  { backgroundColor: "#fee2e2", borderColor: "#ef4444", borderWidth: 1 }
+                ]}
+              >
+                <Text style={[styles.actionButtonText, { color: "#b91c1c", fontWeight: "600" }]} numberOfLines={Platform.OS === "web" ? 1 : 2} adjustsFontSizeToFit={false} ellipsizeMode="tail">
+                  {Platform.OS === "web" ? "Cancel Edit" : "Cancel\nEdit"}
+                </Text>
+              </Pressable>
             )}
             {!isSurveyor && ((hasChanges || currentRosterStatus === "draft") ? (
               <Pressable

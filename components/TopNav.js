@@ -45,16 +45,11 @@ export default function TopNav() {
   const handleNavigation = (href) => {
     // Check if we're already on the target page (no need to navigate)
     if (href === pathname) {
-      console.log("Navigation skipped - already on target page:", href);
       return; // Already on this page
     }
     
-    // Debug logging
-    console.log("Navigation attempt:", { pathname, href, hasUnsavedChanges });
-    
     // Check if we're on roster page and have unsaved changes
     if (pathname === "/roster" && hasUnsavedChanges && href !== "/roster") {
-      console.log("Blocking navigation - showing confirmation");
       // Store the pending navigation and show modal/alert
       setPendingNavigation(href);
       
@@ -76,7 +71,6 @@ export default function TopNav() {
               text: "Ignore",
               onPress: () => {
                 setPendingNavigation(null);
-                console.log("Navigating to:", href);
                 router.push(href);
               },
             },
@@ -91,12 +85,11 @@ export default function TopNav() {
         );
       }
     } else {
-      console.log("Navigating to:", href);
       // Use replace for same-route navigation to force reload, push for different routes
       if (href === pathname) {
         router.replace(href);
-    } else {
-      router.push(href);
+      } else {
+        router.push(href);
       }
     }
   };
