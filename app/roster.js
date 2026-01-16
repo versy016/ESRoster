@@ -704,6 +704,18 @@ export default function RosterScreen() {
         // Store the roster's actual start date for validation
         if (latestRosterStartDate) {
           setRosterStartDate(latestRosterStartDate);
+          
+          // Auto-snap view to roster start date
+          // This fixes the issue where refreshing on a date inside a roster (e.g. Jan 12)
+          // shows a misaligned view (Week 1 = Jan 12) instead of the roster start (Week 1 = Jan 5)
+          const currentAnchorStart = startOfWeek(anchorDate, { weekStartsOn: 1 });
+          const rosterStart = startOfWeek(latestRosterStartDate, { weekStartsOn: 1 });
+          
+          if (format(currentAnchorStart, "yyyy-MM-dd") !== format(rosterStart, "yyyy-MM-dd")) {
+             console.log(`[ROSTER] Snapping view from ${format(currentAnchorStart, "yyyy-MM-dd")} to roster start ${format(rosterStart, "yyyy-MM-dd")}`);
+             setAnchorDate(latestRosterStartDate);
+          }
+
           console.log(`[ROSTER] Using roster's startDate for validation: ${format(latestRosterStartDate, "yyyy-MM-dd")}`);
         } else {
           // Calculate from assignments - find the earliest date key
@@ -1740,6 +1752,7 @@ export default function RosterScreen() {
         
         // Update rosterStartDate state to match the generated roster
         setRosterStartDate(generationStartDate);
+        setAnchorDate(generationStartDate);
         
         // Use autoSaveRoster helper to ensure state (ID, status, publishedId) is updated correctly
         await autoSaveRoster(roster);
@@ -2039,7 +2052,7 @@ export default function RosterScreen() {
           )}
           {/* Toggle + heading (mobile) + month slider + action buttons */}
           <View style={styles.controlsRow}>
-            {Platform.OS === "web" && (
+            {Platform.OS !== "web" && (
             <View style={styles.chipContainer}>
               <Chip
                 active={viewMode === "FORTNIGHT"}
@@ -2085,7 +2098,7 @@ export default function RosterScreen() {
             </View>
             )}
 
-            <View style={[styles.actionButtons, { justifyContent: "flex-end", gap: Platform.OS === "web" ? 6 : 6 }]}>
+            <View style={[styles.actionButtons, { marginLeft: "auto", justifyContent: "flex-end", gap: Platform.OS === "web" ? 6 : 6 }]}>
             {!isSurveyor && (
               <>
             <Pressable
@@ -2131,7 +2144,7 @@ export default function RosterScreen() {
                 ]}
               >
                 <Text style={[styles.actionButtonText, { color: "#b91c1c", fontWeight: "600" }]} numberOfLines={Platform.OS === "web" ? 1 : 2} adjustsFontSizeToFit={false} ellipsizeMode="tail">
-                  {Platform.OS === "web" ? "Cancel Edit" : "Cancel\nEdit"}
+                  Cancel
                 </Text>
               </Pressable>
             )}
