@@ -23,6 +23,7 @@ export default function LoginScreen() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [signupSuccess, setSignupSuccess] = useState(false);
   const { signIn, signUp } = useAuth();
   const router = useRouter();
 
@@ -45,14 +46,7 @@ export default function LoginScreen() {
         await signUp(email.trim(), password, {
           name: name.trim() || email.split("@")[0],
         });
-        Alert.alert(
-          "Verification Email Sent",
-          "We've sent a verification link to your email address. Please check your inbox (and spam folder) and click the link to activate your account.",
-          [{ text: "OK" }]
-        );
-        setIsSignUp(false);
-        setPassword("");
-        setName("");
+        setSignupSuccess(true);
       } else {
         await signIn(email.trim(), password);
         // Don't navigate here - let _layout.js handle the redirect
@@ -84,15 +78,37 @@ export default function LoginScreen() {
                 resizeMode="contain"
               />
               <Text style={styles.title}>
-                {isSignUp ? "Create Account" : "Welcome Back"}
+                {signupSuccess ? "Check Your Email" : (isSignUp ? "Create Account" : "Welcome Back")}
               </Text>
               <Text style={styles.subtitle}>
-                {isSignUp
-                  ? "Sign up to access ESRoster"
-                  : "Sign in to continue"}
+                {signupSuccess 
+                  ? `We've sent a verification link to ${email}.`
+                  : (isSignUp ? "Sign up to access ESRoster" : "Sign in to continue")}
               </Text>
             </View>
 
+            {signupSuccess ? (
+              <View style={styles.successContainer}>
+                <View style={styles.successIconContainer}>
+                  <Ionicons name="mail-unread-outline" size={64} color="#fbbf24" />
+                </View>
+                <Text style={styles.successText}>
+                  Please check your inbox (and spam folder) and click the link to activate your account.
+                </Text>
+                <Pressable
+                  style={styles.button}
+                  onPress={() => {
+                    setSignupSuccess(false);
+                    setIsSignUp(false);
+                    setPassword("");
+                    setName("");
+                  }}
+                >
+                  <Text style={styles.buttonText}>Back to Sign In</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <>
             {error ? (
               <View style={styles.errorContainer}>
                 <Ionicons name="alert-circle" size={20} color="#dc2626" />
@@ -172,6 +188,8 @@ export default function LoginScreen() {
                 </Text>
               </Pressable>
             </View>
+            </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
