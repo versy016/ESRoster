@@ -46,8 +46,8 @@ export default function LoginScreen() {
           name: name.trim() || email.split("@")[0],
         });
         Alert.alert(
-          "Success",
-          "Account created! Please check your email to verify your account.",
+          "Verification Email Sent",
+          "We've sent a verification link to your email address. Please check your inbox (and spam folder) and click the link to activate your account.",
           [{ text: "OK" }]
         );
         setIsSignUp(false);
