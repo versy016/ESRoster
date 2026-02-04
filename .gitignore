@@ -42,3 +42,35 @@ yarn-error.*
 
 # Local Netlify folder
 .netlify
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+supabase/.temp/
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Environment variables (keep .env.example if you have one)
+.env
+.env.local
+.env.*.local
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { validateEmailDomain, getAllowedDomains } from "../lib/email-domain-validation";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -24,8 +25,21 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [allowedDomains, setAllowedDomains] = useState([]);
   const { signIn, signUp } = useAuth();
   const router = useRouter();
+
+  // Fetch allowed domains from database when component mounts
+  useEffect(() => {
+    if (isSignUp) {
+      getAllowedDomains().then(domains => {
+        setAllowedDomains(domains || []);
+      }).catch(err => {
+        console.warn("[LOGIN] Error fetching allowed domains:", err);
+        // Continue without showing domains if fetch fails
+      });
+    }
+  }, [isSignUp]);
 
   const handleSubmit = async () => {
     if (!email.trim() || !password.trim()) {
@@ -36,6 +50,21 @@ export default function LoginScreen() {
     if (password.length < 6) {
       setError("Password must be at least 6 characters");
       return;
+    }
+
+    // Validate email domain for signup
+    if (isSignUp) {
+      try {
+        const validation = await validateEmailDomain(email.trim());
+        if (!validation.valid) {
+          setError(validation.error);
+          return;
+        }
+      } catch (validationError) {
+        // If validation fails (e.g., database error), show generic error
+        setError("Unable to validate email domain. Please try again.");
+        return;
+      }
     }
 
     setError("");
@@ -54,7 +83,12 @@ export default function LoginScreen() {
         // This ensures the session is properly set before navigation
       }
     } catch (err) {
-      setError(err.message || "An error occurred");
+      // Check if it's a domain validation error
+      if (err.name === 'EmailDomainError') {
+        setError(err.message);
+      } else {
+        setError(err.message || "An error occurred");
+      }
     } finally {
       setLoading(false);
     }
@@ -81,7 +115,7 @@ export default function LoginScreen() {
                 {signupSuccess ? "Check Your Email" : (isSignUp ? "Create Account" : "Welcome Back")}
               </Text>
               <Text style={styles.subtitle}>
-                {signupSuccess 
+                {signupSuccess
                   ? `We've sent a verification link to ${email}.`
                   : (isSignUp ? "Sign up to access ESRoster" : "Sign in to continue")}
               </Text>
@@ -109,86 +143,91 @@ export default function LoginScreen() {
               </View>
             ) : (
               <>
-            {error ? (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={20} color="#dc2626" />
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
+                {error ? (
+                  <View style={styles.errorContainer}>
+                    <Ionicons name="alert-circle" size={20} color="#dc2626" />
+                    <Text style={styles.errorText}>{error}</Text>
+                  </View>
+                ) : null}
 
-            <View style={styles.form}>
-              {isSignUp && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Name (optional)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={name}
-                    onChangeText={setName}
-                    placeholder="Enter your name"
-                    placeholderTextColor="#999999"
-                    autoCapitalize="words"
-                  />
+                <View style={styles.form}>
+                  {isSignUp && (
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Name (optional)</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={name}
+                        onChangeText={setName}
+                        placeholder="Enter your name"
+                        placeholderTextColor="#999999"
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  )}
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Email</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="Enter your email"
+                      placeholderTextColor="#999999"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoComplete="email"
+                    />
+                    {isSignUp && allowedDomains.length > 0 && (
+                      <Text style={styles.helperText}>
+                        Allowed domains: {allowedDomains.join(", ")}
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="Enter your password"
+                      placeholderTextColor="#999999"
+                      secureTextEntry
+                      autoCapitalize="none"
+                      autoComplete={isSignUp ? "password-new" : "password"}
+                    />
+                  </View>
+
+                  <Pressable
+                    style={[styles.button, loading && styles.buttonDisabled]}
+                    onPress={handleSubmit}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#000000" />
+                    ) : (
+                      <Text style={styles.buttonText}>
+                        {isSignUp ? "Sign Up" : "Sign In"}
+                      </Text>
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.switchButton}
+                    onPress={() => {
+                      setIsSignUp(!isSignUp);
+                      setError("");
+                      setPassword("");
+                    }}
+                  >
+                    <Text style={styles.switchText}>
+                      {isSignUp
+                        ? "Already have an account? Sign In"
+                        : "Don't have an account? Sign Up"}
+                    </Text>
+                  </Pressable>
                 </View>
-              )}
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email</Text>
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="Enter your email"
-                  placeholderTextColor="#999999"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#999999"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoComplete={isSignUp ? "password-new" : "password"}
-                />
-              </View>
-
-              <Pressable
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleSubmit}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#000000" />
-                ) : (
-                  <Text style={styles.buttonText}>
-                    {isSignUp ? "Sign Up" : "Sign In"}
-                  </Text>
-                )}
-              </Pressable>
-
-              <Pressable
-                style={styles.switchButton}
-                onPress={() => {
-                  setIsSignUp(!isSignUp);
-                  setError("");
-                  setPassword("");
-                }}
-              >
-                <Text style={styles.switchText}>
-                  {isSignUp
-                    ? "Already have an account? Sign In"
-                    : "Don't have an account? Sign Up"}
-                </Text>
-              </Pressable>
-            </View>
-            </>
+              </>
             )}
           </View>
         </ScrollView>
@@ -283,6 +322,12 @@ const styles = StyleSheet.create({
   switchText: {
     fontSize: 14,
     color: "#666666",
+  },
+  helperText: {
+    fontSize: 12,
+    color: "#666666",
+    marginTop: 4,
+    fontStyle: "italic",
   },
   errorContainer: {
     flexDirection: "row",

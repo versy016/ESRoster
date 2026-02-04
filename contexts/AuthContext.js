@@ -4,16 +4,18 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { validateEmailDomain } from "../lib/email-domain-validation";
+import { autoLinkUserToSurveyorByEmail } from "../lib/db";
 
 const AuthContext = createContext({
   session: null,
   user: null,
   role: null,
   loading: true,
-  signIn: async () => {},
-  signUp: async () => {},
-  signOut: async () => {},
-  refreshRole: async () => {},
+  signIn: async () => { },
+  signUp: async () => { },
+  signOut: async () => { },
+  refreshRole: async () => { },
 });
 
 export const useAuth = () => {
@@ -33,7 +35,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let isMounted = true;
     let timeoutId;
-    
+
     // Add timeout to prevent infinite loading
     timeoutId = setTimeout(() => {
       if (isMounted && loading) {
@@ -41,23 +43,23 @@ export function AuthProvider({ children }) {
         setLoading(false);
       }
     }, 10000); // 10 second timeout
-    
+
     // Get initial session and load role
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (!isMounted) return;
-      
+
       clearTimeout(timeoutId);
-      
+
       if (error) {
         console.error("[AUTH] Error getting session:", error);
         setLoading(false);
         return;
       }
-      
+
       console.log("[AUTH] Initial session:", session ? "Found" : "None");
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       // Load user role from surveyors table
       if (session?.user) {
         console.log("[AUTH] Loading role for user:", session.user.id);
@@ -71,7 +73,7 @@ export function AuthProvider({ children }) {
         console.log("[AUTH] No user session - user not authenticated");
         setRole(null);
       }
-      
+
       setLoading(false);
     }).catch((error) => {
       if (!isMounted) return;
@@ -79,7 +81,7 @@ export function AuthProvider({ children }) {
       console.error("[AUTH] Exception getting session:", error);
       setLoading(false);
     });
-    
+
     return () => {
       isMounted = false;
       clearTimeout(timeoutId);
@@ -90,10 +92,10 @@ export function AuthProvider({ children }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!isMounted) return;
-      
+
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       // Load user role from surveyors table
       if (session?.user) {
         try {
@@ -105,7 +107,7 @@ export function AuthProvider({ children }) {
       } else {
         setRole(null);
       }
-      
+
       setLoading(false);
     });
 
@@ -152,22 +154,58 @@ export function AuthProvider({ children }) {
       password,
     });
     if (error) throw error;
-    
+
     // Immediately update session state (onAuthStateChange will also fire, but this ensures it's set right away)
     if (data?.session) {
       setSession(data.session);
       setUser(data.user ?? null);
-      // Load role if user is linked to a surveyor
-      if (data.user?.id) {
-        await loadUserRole(data.user.id);
+
+      // Try to auto-link user to surveyor if not already linked
+      if (data.user?.id && data.user?.email) {
+        try {
+          // Check if user is already linked by trying to load role
+          await loadUserRole(data.user.id);
+
+          // If role is null or default, try auto-linking
+          // (This handles cases where user signed up before auto-link was implemented)
+          const { data: surveyorCheck } = await supabase
+            .from("surveyors")
+            .select("id, user_id")
+            .eq("user_id", data.user.id)
+            .maybeSingle();
+
+          if (!surveyorCheck) {
+            // User not linked, try auto-link
+            console.log("[AUTH] User not linked to surveyor, attempting auto-link on signin");
+            const linkResult = await autoLinkUserToSurveyorByEmail(data.user.id, data.user.email);
+
+            if (linkResult.success) {
+              console.log("[AUTH] Successfully auto-linked user to surveyor on signin:", linkResult.surveyorId);
+              // Reload role after linking
+              await loadUserRole(data.user.id);
+            }
+          }
+        } catch (linkError) {
+          // Log but don't fail signin if auto-link errors
+          console.warn("[AUTH] Error during auto-link on signin (signin still successful):", linkError);
+        }
       }
+
       setLoading(false);
     }
-    
+
     return data;
   };
 
   const signUp = async (email, password, metadata = {}) => {
+    // Validate email domain before attempting signup
+    const validation = await validateEmailDomain(email);
+    if (!validation.valid) {
+      const error = new Error(validation.error);
+      error.name = 'EmailDomainError';
+      throw error;
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -176,6 +214,27 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw error;
+
+    // Automatically link user to surveyor if email matches
+    if (data?.user?.id && data?.user?.email) {
+      try {
+        console.log("[AUTH] Attempting to auto-link user to surveyor by email");
+        const linkResult = await autoLinkUserToSurveyorByEmail(data.user.id, data.user.email);
+
+        if (linkResult.success) {
+          console.log("[AUTH] Successfully auto-linked user to surveyor:", linkResult.surveyorId);
+          // Reload role after linking
+          await loadUserRole(data.user.id);
+        } else {
+          // Log but don't fail signup if auto-link fails
+          console.log("[AUTH] Auto-link failed (user may not have matching surveyor record):", linkResult.error);
+        }
+      } catch (linkError) {
+        // Log but don't fail signup if auto-link errors
+        console.warn("[AUTH] Error during auto-link (signup still successful):", linkError);
+      }
+    }
+
     return data;
   };
 
