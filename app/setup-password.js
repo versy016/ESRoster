@@ -22,7 +22,6 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
-import { Platform } from "react-native";
 
 export default function SetupPasswordScreen() {
     const [password, setPassword] = useState("");
