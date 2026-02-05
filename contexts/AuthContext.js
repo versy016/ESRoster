@@ -90,8 +90,17 @@ export function AuthProvider({ children }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
+
+      console.log("[AUTH] Auth state changed:", event, session?.user?.email);
+
+      // Handle invitation acceptance - user needs to set password
+      if (event === 'SIGNED_IN' && session?.user) {
+        // Check if user has no password set (invited user)
+        // If user was just invited, they might need to set password
+        // This is handled by the invitation flow redirecting to setup-password
+      }
 
       setSession(session);
       setUser(session?.user ?? null);

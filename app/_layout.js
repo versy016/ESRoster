@@ -15,14 +15,14 @@ function RootLayoutNav() {
   useEffect(() => {
     if (loading) return;
 
-    const inAuthGroup = segments[0] === "login";
+    const inAuthGroup = segments[0] === "login" || segments[0] === "setup-password";
 
     // Only redirect if we're actually on the wrong page
     if (!session && !inAuthGroup) {
-      // Redirect to login if not authenticated and not already on login page
+      // Redirect to login if not authenticated and not already on login/setup-password page
       router.replace("/login");
-    } else if (session && inAuthGroup) {
-      // Redirect to home if authenticated and on login page
+    } else if (session && inAuthGroup && segments[0] === "login") {
+      // Redirect to home if authenticated and on login page (but allow setup-password)
       // Small delay to ensure session state is fully propagated
       const timeoutId = setTimeout(() => {
         router.replace("/");
@@ -49,6 +49,7 @@ function RootLayoutNav() {
     <Stack screenOptions={screenOptions}>
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
+      <Stack.Screen name="setup-password" />
       <Stack.Screen name="roster" />
       <Stack.Screen name="demand" />
       <Stack.Screen name="surveyors" />
@@ -78,7 +79,7 @@ export default function Layout() {
     <AuthProvider>
       <UnsavedChangesProvider>
         <RootLayoutNav />
-    </UnsavedChangesProvider>
+      </UnsavedChangesProvider>
     </AuthProvider>
   );
 }
