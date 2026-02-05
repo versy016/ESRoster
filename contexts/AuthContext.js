@@ -105,6 +105,39 @@ export function AuthProvider({ children }) {
           console.log("[AUTH] User signed in but needs to set password");
           // Store flag that user needs password setup
           // This will be checked in _layout.js to redirect to setup-password
+        } else {
+          // User has password set, try to auto-link to surveyor if not already linked
+          if (session.user.id && session.user.email) {
+            try {
+              // Check if user is already linked
+              const { data: surveyorCheck } = await supabase
+                .from("surveyors")
+                .select("id, user_id")
+                .eq("user_id", session.user.id)
+                .maybeSingle();
+
+              if (!surveyorCheck) {
+                // User not linked, try auto-link
+                console.log("[AUTH] User not linked to surveyor, attempting auto-link after password setup");
+                const linkResult = await autoLinkUserToSurveyorByEmail(session.user.id, session.user.email);
+
+                if (linkResult.success) {
+                  console.log("[AUTH] Successfully auto-linked user to surveyor:", linkResult.surveyorId);
+                  // Reload role after linking
+                  await loadUserRole(session.user.id);
+                } else {
+                  console.log("[AUTH] Auto-link failed (user may not have matching surveyor record):", linkResult.error);
+                }
+              } else {
+                // User already linked, just load role
+                await loadUserRole(session.user.id);
+              }
+            } catch (linkError) {
+              console.warn("[AUTH] Error during auto-link:", linkError);
+              // Still load role even if auto-link fails
+              await loadUserRole(session.user.id);
+            }
+          }
         }
       }
 
