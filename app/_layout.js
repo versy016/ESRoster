@@ -16,18 +16,40 @@ function RootLayoutNav() {
     if (loading) return;
 
     const inAuthGroup = segments[0] === "login" || segments[0] === "setup-password";
+    const currentPath = segments[0];
+
+    // Check if user came from invitation (has token in URL)
+    const checkInvitationRedirect = () => {
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        const urlParams = new URLSearchParams(window.location.search);
+        const hash = window.location.hash;
+
+        const hasToken = urlParams.has("token") ||
+          urlParams.has("confirmation_token") ||
+          urlParams.has("token_hash") ||
+          hash.includes("access_token") ||
+          hash.includes("type=invite");
+
+        return hasToken;
+      }
+      return false;
+    };
 
     // Only redirect if we're actually on the wrong page
     if (!session && !inAuthGroup) {
       // Redirect to login if not authenticated and not already on login/setup-password page
       router.replace("/login");
-    } else if (session && inAuthGroup && segments[0] === "login") {
+    } else if (session && inAuthGroup && currentPath === "login") {
       // Redirect to home if authenticated and on login page (but allow setup-password)
       // Small delay to ensure session state is fully propagated
       const timeoutId = setTimeout(() => {
         router.replace("/");
       }, 50);
       return () => clearTimeout(timeoutId);
+    } else if (session && !inAuthGroup && checkInvitationRedirect()) {
+      // User is authenticated and has invitation token - redirect to password setup
+      console.log("[LAYOUT] Detected authenticated user with invitation token, redirecting to setup-password");
+      router.replace("/setup-password");
     }
   }, [session, loading, segments, router]);
 
