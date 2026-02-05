@@ -120,7 +120,7 @@ export default function SetupPasswordScreen() {
 
             if (session?.user) {
                 // User is already authenticated from invitation link, just update password
-                const { error: updateError } = await supabase.auth.updateUser({
+                const { error: updateError, data: updateData } = await supabase.auth.updateUser({
                     password: password.trim(),
                     data: {
                         password_set: true, // Mark that password has been set
@@ -131,10 +131,32 @@ export default function SetupPasswordScreen() {
                     throw updateError;
                 }
 
+                // Get updated user to verify metadata was saved
+                const { data: { user: updatedUser } } = await supabase.auth.getUser();
+                console.log("[SETUP PASSWORD] Password set, user metadata:", updatedUser?.user_metadata);
+
+                // Refresh session to get updated metadata
+                const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+
+                if (refreshError) {
+                    console.warn("[SETUP PASSWORD] Failed to refresh session:", refreshError);
+                    // Continue anyway - metadata should still be saved
+                } else {
+                    console.log("[SETUP PASSWORD] Session refreshed, password_set:", refreshedSession?.user?.user_metadata?.password_set);
+                }
+
                 setSuccess(true);
 
-                // Auto-login after password setup
+                // Wait a bit longer to ensure session is updated, then redirect
                 setTimeout(() => {
+                    // Clear any URL parameters that might cause redirect loop
+                    if (Platform.OS === "web" && typeof window !== "undefined") {
+                        // Clear URL hash and query params
+                        const url = new URL(window.location.href);
+                        url.hash = '';
+                        url.search = '';
+                        window.history.replaceState({}, '', url.pathname);
+                    }
                     router.replace("/");
                 }, 2000);
             } else if (token) {
@@ -188,6 +210,9 @@ export default function SetupPasswordScreen() {
                         if (updateError) {
                             throw updateError;
                         }
+
+                        // Refresh session to get updated metadata
+                        await supabase.auth.refreshSession();
                     }
                 } catch (verifyErr) {
                     // If verification fails, try to set password anyway (user might be already confirmed)
@@ -202,9 +227,21 @@ export default function SetupPasswordScreen() {
                     if (updateError) {
                         throw new Error(updateError.message || "Failed to set password. Please try again or request a new invitation.");
                     }
+
+                    // Refresh session to get updated metadata
+                    await supabase.auth.refreshSession();
                 }
 
                 setSuccess(true);
+
+                // Wait a bit to ensure session is updated, then redirect
+                setTimeout(() => {
+                    // Clear any URL parameters that might cause redirect loop
+                    if (Platform.OS === "web" && typeof window !== "undefined") {
+                        window.history.replaceState({}, '', '/');
+                    }
+                    router.replace("/");
+                }, 1500);
 
                 // Auto-login after password setup
                 setTimeout(() => {

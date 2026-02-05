@@ -19,7 +19,11 @@ function RootLayoutNav() {
     const currentPath = segments[0];
 
     // Check if user needs to set password (invited user without password)
-    const needsPasswordSetup = session?.user && !session.user.user_metadata?.password_set;
+    // Also check if we're currently on setup-password to avoid redirect loops
+    const isOnSetupPassword = currentPath === "setup-password";
+    // Get fresh user metadata - check both user_metadata and app_metadata
+    const passwordSet = session?.user?.user_metadata?.password_set || session?.user?.app_metadata?.password_set;
+    const needsPasswordSetup = session?.user && !passwordSet && !isOnSetupPassword;
 
     // Check if user came from invitation (has token in URL)
     const checkInvitationRedirect = () => {
@@ -49,10 +53,13 @@ function RootLayoutNav() {
         router.replace("/");
       }, 50);
       return () => clearTimeout(timeoutId);
-    } else if (session && needsPasswordSetup && currentPath !== "setup-password") {
+    } else if (session && needsPasswordSetup) {
       // User is authenticated but hasn't set password - force password setup
-      console.log("[LAYOUT] User needs to set password, redirecting to setup-password");
-      router.replace("/setup-password");
+      // Only redirect if not already on setup-password to avoid loops
+      if (currentPath !== "setup-password") {
+        console.log("[LAYOUT] User needs to set password, redirecting to setup-password");
+        router.replace("/setup-password");
+      }
     } else if (session && !inAuthGroup && checkInvitationRedirect()) {
       // User is authenticated and has invitation token - redirect to password setup
       console.log("[LAYOUT] Detected authenticated user with invitation token, redirecting to setup-password");
