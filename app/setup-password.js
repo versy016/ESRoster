@@ -33,58 +33,23 @@ export default function SetupPasswordScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
 
-    // Check for token in URL params (from invitation email)
-    // Use token_hash from custom email link (recommended approach per Supabase docs)
-    const token = params.token_hash || params.token || params.confirmation_token;
-    const tokenType = params.type || 'invite';
-
-    // Also check URL hash for Supabase auth tokens (from confirmation URL)
-    useEffect(() => {
-        if (Platform.OS === "web" && typeof window !== "undefined") {
-            const hash = window.location.hash;
-            if (hash) {
-                // Parse hash for access_token or token
-                const hashParams = new URLSearchParams(hash.substring(1));
-                const hashToken = hashParams.get("access_token") || hashParams.get("token");
-                if (hashToken && !token) {
-                    // Token found in hash, we'll use it for verification
-                    console.log("[SETUP PASSWORD] Token found in URL hash");
-                }
-            }
-        }
-    }, []);
-
-    // On web, also check URL hash for Supabase auth tokens
-    useEffect(() => {
-        if (Platform.OS === "web" && typeof window !== "undefined") {
-            const hash = window.location.hash;
-            if (hash && hash.includes("access_token")) {
-                // Supabase will handle this via onAuthStateChange
-                console.log("[SETUP PASSWORD] Detected auth token in URL hash");
-            }
-        }
-    }, []);
+    // Note: The invitation email's ConfirmationURL already confirms the account and logs the user in
+    // We just need to set the password for the authenticated user
 
     useEffect(() => {
-        // Check if user is already authenticated (from invitation link click)
+        // Check if user is authenticated (from invitation ConfirmationURL)
         const checkSession = async () => {
             try {
                 const { data: { session } } = await supabase.auth.getSession();
 
                 if (session?.user) {
-                    // User is authenticated, they can set password
+                    // User is authenticated from invitation link, they can set password
                     console.log("[SETUP PASSWORD] User is authenticated, can set password");
                     setCheckingSession(false);
-                } else if (token) {
-                    // User has token but not authenticated yet
-                    console.log("[SETUP PASSWORD] Token found, waiting for authentication");
-                    setCheckingSession(false);
                 } else {
-                    // No session and no token - might be direct access
-                    console.log("[SETUP PASSWORD] No session or token found");
+                    // No session - user needs to click invitation link first
+                    console.log("[SETUP PASSWORD] No session found - user needs to use invitation link");
                     setCheckingSession(false);
-                    // Don't show error immediately - user might be coming from invitation
-                    // Supabase will handle the redirect via onAuthStateChange
                 }
             } catch (err) {
                 console.error("[SETUP PASSWORD] Error checking session:", err);
@@ -93,7 +58,7 @@ export default function SetupPasswordScreen() {
         };
 
         checkSession();
-    }, [token]);
+    }, []);
 
     const handleSetupPassword = async () => {
         // Validation
@@ -116,187 +81,45 @@ export default function SetupPasswordScreen() {
         setLoading(true);
 
         try {
-            // Check if user is already authenticated (from invitation link)
+            // Check if user is authenticated (from invitation ConfirmationURL)
             const { data: { session } } = await supabase.auth.getSession();
 
-            if (session?.user) {
-                // User is already authenticated from invitation link, just update password
-                const { error: updateError, data: updateData } = await supabase.auth.updateUser({
-                    password: password.trim(),
-                    data: {
-                        password_set: true, // Mark that password has been set
-                    },
-                });
-
-                if (updateError) {
-                    throw updateError;
-                }
-
-                // Get updated user to verify metadata was saved
-                const { data: { user: updatedUser }, error: getUserError } = await supabase.auth.getUser();
-                console.log("[SETUP PASSWORD] Password set, user metadata:", updatedUser?.user_metadata);
-
-                if (getUserError) {
-                    console.warn("[SETUP PASSWORD] Error getting user:", getUserError);
-                }
-
-                // Refresh session to get updated metadata - try multiple times if needed
-                let refreshedSession = null;
-                for (let i = 0; i < 3; i++) {
-                    const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
-                    if (!refreshError && session) {
-                        refreshedSession = session;
-                        console.log("[SETUP PASSWORD] Session refreshed (attempt", i + 1, "), password_set:", session?.user?.user_metadata?.password_set);
-                        if (session?.user?.user_metadata?.password_set) {
-                            break; // Successfully got updated metadata
-                        }
-                    }
-                    // Wait a bit before retrying
-                    if (i < 2) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
-                }
-
-                if (!refreshedSession) {
-                    console.warn("[SETUP PASSWORD] Failed to refresh session after multiple attempts");
-                }
-
-                // Store flag that password was just set to prevent redirect loop
-                // Use localStorage so it persists across redirects
-                if (Platform.OS === "web" && typeof window !== "undefined") {
-                    localStorage.setItem('password_just_set', 'true');
-                    localStorage.setItem('password_set_timestamp', Date.now().toString());
-                    console.log("[SETUP PASSWORD] Stored password_just_set flag in localStorage");
-                }
-
-                setSuccess(true);
-
-                // Wait a bit longer to ensure session is updated, then redirect
-                setTimeout(() => {
-                    // Clear any URL parameters that might cause redirect loop
-                    if (Platform.OS === "web" && typeof window !== "undefined") {
-                        // Clear URL hash and query params
-                        const url = new URL(window.location.href);
-                        url.hash = '';
-                        url.search = '';
-                        window.history.replaceState({}, '', url.pathname);
-                    }
-                    router.replace("/");
-                }, 2000);
-            } else if (token) {
-                // User has token_hash from invitation email - verify OTP and set password
-                // This approach follows Supabase's recommended pattern (Option 1 from email prefetching docs)
-                // The account is only confirmed AFTER password is set, not before
-                try {
-                    console.log("[SETUP PASSWORD] Verifying invitation token_hash:", token, "type:", tokenType);
-
-                    // Verify the invitation token using verifyOtp (this confirms the account and creates the user)
-                    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-                        token_hash: token,
-                        type: tokenType,
-                    });
-
-                    if (verifyError) {
-                        console.error("[SETUP PASSWORD] Token verification failed:", verifyError);
-                        throw new Error(verifyError.message || "Invalid or expired invitation link. Please request a new invitation.");
-                    }
-
-                    // Token verified successfully - user is now authenticated
-                    console.log("[SETUP PASSWORD] Token verified, user authenticated:", verifyData?.user?.email, "user ID:", verifyData?.user?.id);
-
-                    // Wait a moment for the user to be fully created in the database
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-
-                    // Now set the password (user is authenticated after verifyOtp)
-                    // Retry if user doesn't exist yet (race condition)
-                    let updateError = null;
-                    let retries = 3;
-
-                    while (retries > 0) {
-                        const { error: error } = await supabase.auth.updateUser({
-                            password: password.trim(),
-                            data: {
-                                password_set: true, // Mark that password has been set
-                            },
-                        });
-
-                        if (!error) {
-                            console.log("[SETUP PASSWORD] Password set successfully");
-                            break;
-                        }
-
-                        updateError = error;
-
-                        // If error is about user not existing, wait and retry
-                        if (error.message && error.message.includes("does not exist")) {
-                            console.log("[SETUP PASSWORD] User not ready yet, retrying... (", retries, "attempts left)");
-                            retries--;
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        } else {
-                            // Other error, don't retry
-                            throw new Error(error.message || "Failed to set password. Please try again.");
-                        }
-                    }
-
-                    if (updateError) {
-                        throw new Error(updateError.message || "Failed to set password after multiple attempts. Please try again.");
-                    }
-
-                    // Get updated user to verify metadata was saved
-                    const { data: { user: updatedUser } } = await supabase.auth.getUser();
-                    console.log("[SETUP PASSWORD] Password set, user metadata:", updatedUser?.user_metadata);
-
-                    // Refresh session to get updated metadata - try multiple times if needed
-                    let refreshedSession = null;
-                    for (let i = 0; i < 3; i++) {
-                        const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
-                        if (!refreshError && session) {
-                            refreshedSession = session;
-                            console.log("[SETUP PASSWORD] Session refreshed (attempt", i + 1, "), password_set:", session?.user?.user_metadata?.password_set);
-                            if (session?.user?.user_metadata?.password_set) {
-                                break; // Successfully got updated metadata
-                            }
-                        }
-                        // Wait a bit before retrying
-                        if (i < 2) {
-                            await new Promise(resolve => setTimeout(resolve, 500));
-                        }
-                    }
-
-                    if (!refreshedSession) {
-                        console.warn("[SETUP PASSWORD] Failed to refresh session after multiple attempts");
-                    }
-                } catch (err) {
-                    console.error("[SETUP PASSWORD] Error in token verification/password setup:", err);
-                    throw err;
-                }
-
-                // Store flag that password was just set to prevent redirect loop
-                // Use localStorage so it persists across redirects
-                if (Platform.OS === "web" && typeof window !== "undefined") {
-                    localStorage.setItem('password_just_set', 'true');
-                    localStorage.setItem('password_set_timestamp', Date.now().toString());
-                    console.log("[SETUP PASSWORD] Stored password_just_set flag in localStorage");
-                }
-
-                setSuccess(true);
-
-                // Wait a bit to ensure session is updated, then redirect
-                setTimeout(() => {
-                    // Clear any URL parameters that might cause redirect loop
-                    if (Platform.OS === "web" && typeof window !== "undefined") {
-                        window.history.replaceState({}, '', '/');
-                    }
-                    router.replace("/");
-                }, 1500);
-
-                // Auto-login after password setup
-                setTimeout(() => {
-                    router.replace("/");
-                }, 2000);
-            } else {
-                throw new Error("No invitation token found. Please use the link from your invitation email.");
+            if (!session?.user) {
+                throw new Error("You must be logged in to set your password. Please click the invitation link from your email first.");
             }
+
+            // User is authenticated from invitation link, just set the password
+            console.log("[SETUP PASSWORD] Setting password for authenticated user:", session.user.email);
+
+            const { error: updateError } = await supabase.auth.updateUser({
+                password: password.trim(),
+                data: {
+                    password_set: true, // Mark that password has been set
+                },
+            });
+
+            if (updateError) {
+                throw updateError;
+            }
+
+            console.log("[SETUP PASSWORD] Password set successfully");
+
+            // Store flag that password was just set to prevent redirect loop
+            if (Platform.OS === "web" && typeof window !== "undefined") {
+                localStorage.setItem('password_just_set', 'true');
+                localStorage.setItem('password_set_timestamp', Date.now().toString());
+            }
+
+            setSuccess(true);
+
+            // Redirect after a short delay
+            setTimeout(() => {
+                if (Platform.OS === "web" && typeof window !== "undefined") {
+                    // Clear URL parameters
+                    window.history.replaceState({}, '', '/');
+                }
+                router.replace("/");
+            }, 1500);
         } catch (err) {
             console.error("[SETUP PASSWORD] Error:", err);
             setError(err.message || "Failed to set password. The invitation link may have expired. Please request a new invitation.");
