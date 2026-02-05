@@ -23,15 +23,15 @@ function RootLayoutNav() {
     const isOnSetupPassword = currentPath === "setup-password";
 
     // Check if password was just set (to prevent redirect loop)
-    // Check localStorage with timestamp to ensure it's recent (within last 5 minutes)
+    // Check localStorage with timestamp to ensure it's recent (within last 1 hour)
     let passwordJustSet = false;
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const flag = localStorage.getItem('password_just_set');
       const timestamp = localStorage.getItem('password_set_timestamp');
       if (flag === 'true' && timestamp) {
         const timeDiff = Date.now() - parseInt(timestamp, 10);
-        // Flag is valid for 5 minutes
-        if (timeDiff < 5 * 60 * 1000) {
+        // Flag is valid for 1 hour (longer to handle session refresh delays and re-renders)
+        if (timeDiff < 60 * 60 * 1000) {
           passwordJustSet = true;
           console.log("[LAYOUT] Password just set flag found (age:", Math.round(timeDiff / 1000), "seconds)");
         } else {
@@ -50,17 +50,15 @@ function RootLayoutNav() {
 
     // Only require password setup if:
     // 1. User is authenticated
-    // 2. Password is not set (in metadata)
+    // 2. Password is not set (in metadata) AND flag is not set
     // 3. Not already on setup-password page
     // 4. Password was not just set (to prevent redirect loop)
     const needsPasswordSetup = session?.user && !passwordSet && !isOnSetupPassword && !passwordJustSet;
 
-    // Clear the flag if password was just set and we're successfully navigating away
-    if (passwordJustSet && !isOnSetupPassword && !needsPasswordSetup && Platform.OS === "web" && typeof window !== "undefined") {
-      localStorage.removeItem('password_just_set');
-      localStorage.removeItem('password_set_timestamp');
-      console.log("[LAYOUT] Password just set flag cleared - user can access app");
-    }
+    // DON'T clear the flag automatically - let it expire naturally after 1 hour
+    // This ensures the session has time to refresh with the updated metadata
+    // The flag will be cleared when it expires or when user explicitly sets password again
+    // This prevents the redirect loop when the layout re-renders
 
     // Check if user came from invitation (has token in URL)
     const checkInvitationRedirect = () => {

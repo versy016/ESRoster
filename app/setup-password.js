@@ -33,9 +33,10 @@ export default function SetupPasswordScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
 
-    // Check for token in URL params (from invitation email or Supabase redirect)
-    // Extract token from URL params or hash
-    const token = params.token || params.confirmation_token || params.token_hash;
+    // Check for token in URL params (from invitation email)
+    // Use token_hash from custom email link (recommended approach per Supabase docs)
+    const token = params.token_hash || params.token || params.confirmation_token;
+    const tokenType = params.type || 'invite';
 
     // Also check URL hash for Supabase auth tokens (from confirmation URL)
     useEffect(() => {
@@ -132,17 +133,32 @@ export default function SetupPasswordScreen() {
                 }
 
                 // Get updated user to verify metadata was saved
-                const { data: { user: updatedUser } } = await supabase.auth.getUser();
+                const { data: { user: updatedUser }, error: getUserError } = await supabase.auth.getUser();
                 console.log("[SETUP PASSWORD] Password set, user metadata:", updatedUser?.user_metadata);
 
-                // Refresh session to get updated metadata
-                const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+                if (getUserError) {
+                    console.warn("[SETUP PASSWORD] Error getting user:", getUserError);
+                }
 
-                if (refreshError) {
-                    console.warn("[SETUP PASSWORD] Failed to refresh session:", refreshError);
-                    // Continue anyway - metadata should still be saved
-                } else {
-                    console.log("[SETUP PASSWORD] Session refreshed, password_set:", refreshedSession?.user?.user_metadata?.password_set);
+                // Refresh session to get updated metadata - try multiple times if needed
+                let refreshedSession = null;
+                for (let i = 0; i < 3; i++) {
+                    const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+                    if (!refreshError && session) {
+                        refreshedSession = session;
+                        console.log("[SETUP PASSWORD] Session refreshed (attempt", i + 1, "), password_set:", session?.user?.user_metadata?.password_set);
+                        if (session?.user?.user_metadata?.password_set) {
+                            break; // Successfully got updated metadata
+                        }
+                    }
+                    // Wait a bit before retrying
+                    if (i < 2) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+
+                if (!refreshedSession) {
+                    console.warn("[SETUP PASSWORD] Failed to refresh session after multiple attempts");
                 }
 
                 // Store flag that password was just set to prevent redirect loop
@@ -168,76 +184,67 @@ export default function SetupPasswordScreen() {
                     router.replace("/");
                 }, 2000);
             } else if (token) {
-                // User has token from invitation email - verify and set password
-                // First, try to verify the invitation token
+                // User has token_hash from invitation email - verify OTP and set password
+                // This approach follows Supabase's recommended pattern (Option 1 from email prefetching docs)
+                // The account is only confirmed AFTER password is set, not before
                 try {
-                    // Extract token from URL if it's in a hash
-                    let tokenToVerify = token;
-                    if (Platform.OS === "web" && typeof window !== "undefined") {
-                        const hash = window.location.hash;
-                        if (hash) {
-                            const hashParams = new URLSearchParams(hash.substring(1));
-                            const hashToken = hashParams.get("access_token");
-                            if (hashToken) {
-                                tokenToVerify = hashToken;
-                            }
-                        }
-                    }
+                    console.log("[SETUP PASSWORD] Verifying invitation token_hash:", token, "type:", tokenType);
 
-                    // Verify the invitation token
+                    // Verify the invitation token using verifyOtp (this confirms the account)
                     const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-                        token_hash: tokenToVerify,
-                        type: 'invite',
+                        token_hash: token,
+                        type: tokenType,
                     });
 
                     if (verifyError) {
-                        // If verifyOtp fails, try using the token directly to set password
-                        // This handles cases where token format is different
-                        console.log("[SETUP PASSWORD] verifyOtp failed, trying direct password update:", verifyError);
-
-                        // Try to set password directly (user might already be confirmed)
-                        const { error: updateError } = await supabase.auth.updateUser({
-                            password: password.trim(),
-                            data: {
-                                password_set: true,
-                            },
-                        });
-
-                        if (updateError) {
-                            throw new Error(updateError.message || "Failed to set password. The invitation link may have expired.");
-                        }
-                    } else {
-                        // Token verified successfully, now set password
-                        const { error: updateError } = await supabase.auth.updateUser({
-                            password: password.trim(),
-                            data: {
-                                password_set: true, // Mark that password has been set
-                            },
-                        });
-
-                        if (updateError) {
-                            throw updateError;
-                        }
-
-                        // Refresh session to get updated metadata
-                        await supabase.auth.refreshSession();
+                        console.error("[SETUP PASSWORD] Token verification failed:", verifyError);
+                        throw new Error(verifyError.message || "Invalid or expired invitation link. Please request a new invitation.");
                     }
-                } catch (verifyErr) {
-                    // If verification fails, try to set password anyway (user might be already confirmed)
-                    console.log("[SETUP PASSWORD] Verification error, trying direct password update:", verifyErr);
+
+                    // Token verified successfully - user is now authenticated
+                    console.log("[SETUP PASSWORD] Token verified, user authenticated:", verifyData?.user?.email);
+
+                    // Now set the password (user is authenticated after verifyOtp)
                     const { error: updateError } = await supabase.auth.updateUser({
                         password: password.trim(),
                         data: {
-                            password_set: true,
+                            password_set: true, // Mark that password has been set
                         },
                     });
 
                     if (updateError) {
-                        throw new Error(updateError.message || "Failed to set password. Please try again or request a new invitation.");
+                        throw new Error(updateError.message || "Failed to set password. Please try again.");
                     }
 
-                    // Refresh session to get updated metadata
-                    await supabase.auth.refreshSession();
+                    console.log("[SETUP PASSWORD] Password set successfully");
+
+                    // Get updated user to verify metadata was saved
+                    const { data: { user: updatedUser } } = await supabase.auth.getUser();
+                    console.log("[SETUP PASSWORD] Password set, user metadata:", updatedUser?.user_metadata);
+
+                    // Refresh session to get updated metadata - try multiple times if needed
+                    let refreshedSession = null;
+                    for (let i = 0; i < 3; i++) {
+                        const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+                        if (!refreshError && session) {
+                            refreshedSession = session;
+                            console.log("[SETUP PASSWORD] Session refreshed (attempt", i + 1, "), password_set:", session?.user?.user_metadata?.password_set);
+                            if (session?.user?.user_metadata?.password_set) {
+                                break; // Successfully got updated metadata
+                            }
+                        }
+                        // Wait a bit before retrying
+                        if (i < 2) {
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        }
+                    }
+
+                    if (!refreshedSession) {
+                        console.warn("[SETUP PASSWORD] Failed to refresh session after multiple attempts");
+                    }
+                } catch (err) {
+                    console.error("[SETUP PASSWORD] Error in token verification/password setup:", err);
+                    throw err;
                 }
 
                 // Store flag that password was just set to prevent redirect loop

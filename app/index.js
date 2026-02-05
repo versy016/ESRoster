@@ -13,20 +13,20 @@ export default function Home() {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const hash = window.location.hash;
-      
+
       // Check for invitation tokens in URL params or hash
-      const hasToken = urlParams.has("token") || 
-                       urlParams.has("confirmation_token") || 
-                       urlParams.has("token_hash") ||
-                       hash.includes("access_token") ||
-                       hash.includes("type=invite");
-      
+      const hasToken = urlParams.has("token") ||
+        urlParams.has("confirmation_token") ||
+        urlParams.has("token_hash") ||
+        hash.includes("access_token") ||
+        hash.includes("type=invite");
+
       if (hasToken) {
         // User came from invitation, redirect to password setup
         console.log("[HOME] Detected invitation token, redirecting to setup-password");
         setRedirectTo("/setup-password");
       }
-      
+
       setShouldRedirect(true);
     } else {
       // For non-web platforms, just redirect to roster
