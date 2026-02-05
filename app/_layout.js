@@ -8,7 +8,7 @@ import { useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 
 function RootLayoutNav() {
-  const { session, loading } = useAuth();
+  const { session, loading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -17,6 +17,9 @@ function RootLayoutNav() {
 
     const inAuthGroup = segments[0] === "login" || segments[0] === "setup-password";
     const currentPath = segments[0];
+
+    // Check if user needs to set password (invited user without password)
+    const needsPasswordSetup = session?.user && !session.user.user_metadata?.password_set;
 
     // Check if user came from invitation (has token in URL)
     const checkInvitationRedirect = () => {
@@ -46,12 +49,16 @@ function RootLayoutNav() {
         router.replace("/");
       }, 50);
       return () => clearTimeout(timeoutId);
+    } else if (session && needsPasswordSetup && currentPath !== "setup-password") {
+      // User is authenticated but hasn't set password - force password setup
+      console.log("[LAYOUT] User needs to set password, redirecting to setup-password");
+      router.replace("/setup-password");
     } else if (session && !inAuthGroup && checkInvitationRedirect()) {
       // User is authenticated and has invitation token - redirect to password setup
       console.log("[LAYOUT] Detected authenticated user with invitation token, redirecting to setup-password");
       router.replace("/setup-password");
     }
-  }, [session, loading, segments, router]);
+  }, [session, loading, segments, router, user]);
 
   if (loading) {
     return (

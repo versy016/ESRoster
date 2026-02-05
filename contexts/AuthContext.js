@@ -97,9 +97,15 @@ export function AuthProvider({ children }) {
 
       // Handle invitation acceptance - user needs to set password
       if (event === 'SIGNED_IN' && session?.user) {
-        // Check if user has no password set (invited user)
-        // If user was just invited, they might need to set password
-        // This is handled by the invitation flow redirecting to setup-password
+        // Check if user needs to set password (invited user)
+        // Invited users don't have password_updated_at in their metadata initially
+        const needsPasswordSetup = !session.user.user_metadata?.password_set;
+
+        if (needsPasswordSetup) {
+          console.log("[AUTH] User signed in but needs to set password");
+          // Store flag that user needs password setup
+          // This will be checked in _layout.js to redirect to setup-password
+        }
       }
 
       setSession(session);

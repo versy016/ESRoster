@@ -33,8 +33,25 @@ export default function SetupPasswordScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
 
-    // Check for token in URL params (from Supabase redirect)
+    // Check for token in URL params (from invitation email or Supabase redirect)
+    // Extract token from URL params or hash
     const token = params.token || params.confirmation_token || params.token_hash;
+
+    // Also check URL hash for Supabase auth tokens (from confirmation URL)
+    useEffect(() => {
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+            const hash = window.location.hash;
+            if (hash) {
+                // Parse hash for access_token or token
+                const hashParams = new URLSearchParams(hash.substring(1));
+                const hashToken = hashParams.get("access_token") || hashParams.get("token");
+                if (hashToken && !token) {
+                    // Token found in hash, we'll use it for verification
+                    console.log("[SETUP PASSWORD] Token found in URL hash");
+                }
+            }
+        }
+    }, []);
 
     // On web, also check URL hash for Supabase auth tokens
     useEffect(() => {
@@ -105,6 +122,9 @@ export default function SetupPasswordScreen() {
                 // User is already authenticated from invitation link, just update password
                 const { error: updateError } = await supabase.auth.updateUser({
                     password: password.trim(),
+                    data: {
+                        password_set: true, // Mark that password has been set
+                    },
                 });
 
                 if (updateError) {
@@ -118,24 +138,70 @@ export default function SetupPasswordScreen() {
                     router.replace("/");
                 }, 2000);
             } else if (token) {
-                // User has token but not authenticated yet - verify token first
-                // Extract token from URL hash or query params
-                const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-                    token_hash: token,
-                    type: 'invite',
-                });
+                // User has token from invitation email - verify and set password
+                // First, try to verify the invitation token
+                try {
+                    // Extract token from URL if it's in a hash
+                    let tokenToVerify = token;
+                    if (Platform.OS === "web" && typeof window !== "undefined") {
+                        const hash = window.location.hash;
+                        if (hash) {
+                            const hashParams = new URLSearchParams(hash.substring(1));
+                            const hashToken = hashParams.get("access_token");
+                            if (hashToken) {
+                                tokenToVerify = hashToken;
+                            }
+                        }
+                    }
 
-                if (verifyError) {
-                    throw verifyError;
-                }
+                    // Verify the invitation token
+                    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+                        token_hash: tokenToVerify,
+                        type: 'invite',
+                    });
 
-                // After verification, update password
-                const { error: updateError } = await supabase.auth.updateUser({
-                    password: password.trim(),
-                });
+                    if (verifyError) {
+                        // If verifyOtp fails, try using the token directly to set password
+                        // This handles cases where token format is different
+                        console.log("[SETUP PASSWORD] verifyOtp failed, trying direct password update:", verifyError);
 
-                if (updateError) {
-                    throw updateError;
+                        // Try to set password directly (user might already be confirmed)
+                        const { error: updateError } = await supabase.auth.updateUser({
+                            password: password.trim(),
+                            data: {
+                                password_set: true,
+                            },
+                        });
+
+                        if (updateError) {
+                            throw new Error(updateError.message || "Failed to set password. The invitation link may have expired.");
+                        }
+                    } else {
+                        // Token verified successfully, now set password
+                        const { error: updateError } = await supabase.auth.updateUser({
+                            password: password.trim(),
+                            data: {
+                                password_set: true, // Mark that password has been set
+                            },
+                        });
+
+                        if (updateError) {
+                            throw updateError;
+                        }
+                    }
+                } catch (verifyErr) {
+                    // If verification fails, try to set password anyway (user might be already confirmed)
+                    console.log("[SETUP PASSWORD] Verification error, trying direct password update:", verifyErr);
+                    const { error: updateError } = await supabase.auth.updateUser({
+                        password: password.trim(),
+                        data: {
+                            password_set: true,
+                        },
+                    });
+
+                    if (updateError) {
+                        throw new Error(updateError.message || "Failed to set password. Please try again or request a new invitation.");
+                    }
                 }
 
                 setSuccess(true);
