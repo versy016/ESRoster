@@ -21,9 +21,27 @@ function RootLayoutNav() {
     // Check if user needs to set password (invited user without password)
     // Also check if we're currently on setup-password to avoid redirect loops
     const isOnSetupPassword = currentPath === "setup-password";
+
+    // Check if password was just set (to prevent redirect loop)
+    const passwordJustSet = Platform.OS === "web" && typeof window !== "undefined"
+      ? sessionStorage.getItem('password_just_set') === 'true'
+      : false;
+
     // Get fresh user metadata - check both user_metadata and app_metadata
     const passwordSet = session?.user?.user_metadata?.password_set || session?.user?.app_metadata?.password_set;
-    const needsPasswordSetup = session?.user && !passwordSet && !isOnSetupPassword;
+
+    // Only require password setup if:
+    // 1. User is authenticated
+    // 2. Password is not set
+    // 3. Not already on setup-password page
+    // 4. Password was not just set (to prevent redirect loop)
+    const needsPasswordSetup = session?.user && !passwordSet && !isOnSetupPassword && !passwordJustSet;
+
+    // Clear the flag if password was just set and we're not on setup-password
+    if (passwordJustSet && !isOnSetupPassword && Platform.OS === "web" && typeof window !== "undefined") {
+      sessionStorage.removeItem('password_just_set');
+      console.log("[LAYOUT] Password just set flag cleared");
+    }
 
     // Check if user came from invitation (has token in URL)
     const checkInvitationRedirect = () => {
@@ -58,6 +76,8 @@ function RootLayoutNav() {
       // Only redirect if not already on setup-password to avoid loops
       if (currentPath !== "setup-password") {
         console.log("[LAYOUT] User needs to set password, redirecting to setup-password");
+        console.log("[LAYOUT] Session user metadata:", session.user.user_metadata);
+        console.log("[LAYOUT] Password set:", passwordSet);
         router.replace("/setup-password");
       }
     } else if (session && !inAuthGroup && checkInvitationRedirect()) {

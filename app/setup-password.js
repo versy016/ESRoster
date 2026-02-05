@@ -145,6 +145,11 @@ export default function SetupPasswordScreen() {
                     console.log("[SETUP PASSWORD] Session refreshed, password_set:", refreshedSession?.user?.user_metadata?.password_set);
                 }
 
+                // Store flag that password was just set to prevent redirect loop
+                if (Platform.OS === "web" && typeof window !== "undefined") {
+                    sessionStorage.setItem('password_just_set', 'true');
+                }
+
                 setSuccess(true);
 
                 // Wait a bit longer to ensure session is updated, then redirect
@@ -230,6 +235,11 @@ export default function SetupPasswordScreen() {
 
                     // Refresh session to get updated metadata
                     await supabase.auth.refreshSession();
+                }
+
+                // Store flag that password was just set to prevent redirect loop
+                if (Platform.OS === "web" && typeof window !== "undefined") {
+                    sessionStorage.setItem('password_just_set', 'true');
                 }
 
                 setSuccess(true);
