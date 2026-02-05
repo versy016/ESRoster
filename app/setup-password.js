@@ -190,7 +190,7 @@ export default function SetupPasswordScreen() {
                 try {
                     console.log("[SETUP PASSWORD] Verifying invitation token_hash:", token, "type:", tokenType);
 
-                    // Verify the invitation token using verifyOtp (this confirms the account)
+                    // Verify the invitation token using verifyOtp (this confirms the account and creates the user)
                     const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
                         token_hash: token,
                         type: tokenType,
@@ -202,21 +202,45 @@ export default function SetupPasswordScreen() {
                     }
 
                     // Token verified successfully - user is now authenticated
-                    console.log("[SETUP PASSWORD] Token verified, user authenticated:", verifyData?.user?.email);
+                    console.log("[SETUP PASSWORD] Token verified, user authenticated:", verifyData?.user?.email, "user ID:", verifyData?.user?.id);
+
+                    // Wait a moment for the user to be fully created in the database
+                    await new Promise(resolve => setTimeout(resolve, 1000));
 
                     // Now set the password (user is authenticated after verifyOtp)
-                    const { error: updateError } = await supabase.auth.updateUser({
-                        password: password.trim(),
-                        data: {
-                            password_set: true, // Mark that password has been set
-                        },
-                    });
+                    // Retry if user doesn't exist yet (race condition)
+                    let updateError = null;
+                    let retries = 3;
 
-                    if (updateError) {
-                        throw new Error(updateError.message || "Failed to set password. Please try again.");
+                    while (retries > 0) {
+                        const { error: error } = await supabase.auth.updateUser({
+                            password: password.trim(),
+                            data: {
+                                password_set: true, // Mark that password has been set
+                            },
+                        });
+
+                        if (!error) {
+                            console.log("[SETUP PASSWORD] Password set successfully");
+                            break;
+                        }
+
+                        updateError = error;
+
+                        // If error is about user not existing, wait and retry
+                        if (error.message && error.message.includes("does not exist")) {
+                            console.log("[SETUP PASSWORD] User not ready yet, retrying... (", retries, "attempts left)");
+                            retries--;
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        } else {
+                            // Other error, don't retry
+                            throw new Error(error.message || "Failed to set password. Please try again.");
+                        }
                     }
 
-                    console.log("[SETUP PASSWORD] Password set successfully");
+                    if (updateError) {
+                        throw new Error(updateError.message || "Failed to set password after multiple attempts. Please try again.");
+                    }
 
                     // Get updated user to verify metadata was saved
                     const { data: { user: updatedUser } } = await supabase.auth.getUser();
