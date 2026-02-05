@@ -146,8 +146,11 @@ export default function SetupPasswordScreen() {
                 }
 
                 // Store flag that password was just set to prevent redirect loop
+                // Use localStorage so it persists across redirects
                 if (Platform.OS === "web" && typeof window !== "undefined") {
-                    sessionStorage.setItem('password_just_set', 'true');
+                    localStorage.setItem('password_just_set', 'true');
+                    localStorage.setItem('password_set_timestamp', Date.now().toString());
+                    console.log("[SETUP PASSWORD] Stored password_just_set flag in localStorage");
                 }
 
                 setSuccess(true);
@@ -238,8 +241,11 @@ export default function SetupPasswordScreen() {
                 }
 
                 // Store flag that password was just set to prevent redirect loop
+                // Use localStorage so it persists across redirects
                 if (Platform.OS === "web" && typeof window !== "undefined") {
-                    sessionStorage.setItem('password_just_set', 'true');
+                    localStorage.setItem('password_just_set', 'true');
+                    localStorage.setItem('password_set_timestamp', Date.now().toString());
+                    console.log("[SETUP PASSWORD] Stored password_just_set flag in localStorage");
                 }
 
                 setSuccess(true);

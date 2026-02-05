@@ -23,24 +23,43 @@ function RootLayoutNav() {
     const isOnSetupPassword = currentPath === "setup-password";
 
     // Check if password was just set (to prevent redirect loop)
-    const passwordJustSet = Platform.OS === "web" && typeof window !== "undefined"
-      ? sessionStorage.getItem('password_just_set') === 'true'
-      : false;
+    // Check localStorage with timestamp to ensure it's recent (within last 5 minutes)
+    let passwordJustSet = false;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const flag = localStorage.getItem('password_just_set');
+      const timestamp = localStorage.getItem('password_set_timestamp');
+      if (flag === 'true' && timestamp) {
+        const timeDiff = Date.now() - parseInt(timestamp, 10);
+        // Flag is valid for 5 minutes
+        if (timeDiff < 5 * 60 * 1000) {
+          passwordJustSet = true;
+          console.log("[LAYOUT] Password just set flag found (age:", Math.round(timeDiff / 1000), "seconds)");
+        } else {
+          // Flag expired, remove it
+          localStorage.removeItem('password_just_set');
+          localStorage.removeItem('password_set_timestamp');
+          console.log("[LAYOUT] Password just set flag expired, removed");
+        }
+      }
+    }
 
     // Get fresh user metadata - check both user_metadata and app_metadata
     const passwordSet = session?.user?.user_metadata?.password_set || session?.user?.app_metadata?.password_set;
 
+    console.log("[LAYOUT] Password check - passwordSet:", passwordSet, "passwordJustSet:", passwordJustSet, "isOnSetupPassword:", isOnSetupPassword);
+
     // Only require password setup if:
     // 1. User is authenticated
-    // 2. Password is not set
+    // 2. Password is not set (in metadata)
     // 3. Not already on setup-password page
     // 4. Password was not just set (to prevent redirect loop)
     const needsPasswordSetup = session?.user && !passwordSet && !isOnSetupPassword && !passwordJustSet;
 
-    // Clear the flag if password was just set and we're not on setup-password
-    if (passwordJustSet && !isOnSetupPassword && Platform.OS === "web" && typeof window !== "undefined") {
-      sessionStorage.removeItem('password_just_set');
-      console.log("[LAYOUT] Password just set flag cleared");
+    // Clear the flag if password was just set and we're successfully navigating away
+    if (passwordJustSet && !isOnSetupPassword && !needsPasswordSetup && Platform.OS === "web" && typeof window !== "undefined") {
+      localStorage.removeItem('password_just_set');
+      localStorage.removeItem('password_set_timestamp');
+      console.log("[LAYOUT] Password just set flag cleared - user can access app");
     }
 
     // Check if user came from invitation (has token in URL)
