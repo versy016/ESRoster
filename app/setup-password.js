@@ -22,6 +22,8 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { autoLinkUserToSurveyorByEmail } from "../lib/db";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function SetupPasswordScreen() {
     const [password, setPassword] = useState("");
@@ -32,6 +34,7 @@ export default function SetupPasswordScreen() {
     const [checkingSession, setCheckingSession] = useState(true);
     const router = useRouter();
     const params = useLocalSearchParams();
+    const { refreshRole } = useAuth();
 
     // Note: The invitation email's ConfirmationURL already confirms the account and logs the user in
     // We just need to set the password for the authenticated user
@@ -103,6 +106,34 @@ export default function SetupPasswordScreen() {
             }
 
             console.log("[SETUP PASSWORD] Password set successfully");
+
+            // Automatically link user to surveyor if email matches (before redirecting)
+            if (session?.user?.id && session?.user?.email) {
+                try {
+                    console.log("[SETUP PASSWORD] Attempting to auto-link user to surveyor by email");
+                    const linkResult = await autoLinkUserToSurveyorByEmail(session.user.id, session.user.email);
+
+                    if (linkResult.success) {
+                        console.log("[SETUP PASSWORD] Successfully auto-linked user to surveyor:", linkResult.surveyorId);
+
+                        // Refresh role after linking to get supervisor role if applicable
+                        // This ensures the user sees supervisor options immediately
+                        try {
+                            if (refreshRole) {
+                                await refreshRole();
+                                console.log("[SETUP PASSWORD] User role refreshed after auto-linking");
+                            }
+                        } catch (roleError) {
+                            console.warn("[SETUP PASSWORD] Error refreshing role after auto-link:", roleError);
+                        }
+                    } else {
+                        console.log("[SETUP PASSWORD] Auto-link failed (user may not have matching surveyor record):", linkResult.error);
+                    }
+                } catch (linkError) {
+                    // Log but don't fail password setup if auto-link errors
+                    console.warn("[SETUP PASSWORD] Error during auto-link (password setup still successful):", linkError);
+                }
+            }
 
             // Store flag that password was just set to prevent redirect loop
             if (Platform.OS === "web" && typeof window !== "undefined") {
